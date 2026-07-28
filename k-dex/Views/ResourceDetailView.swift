@@ -7,6 +7,7 @@ struct ResourceDetailView: View {
     var onDelete: (() -> Void)?
     var onScale: (() -> Void)?
     var onForward: (() -> Void)?
+    var onRestart: (() -> Void)?
 
     private enum Tab: String, CaseIterable {
         case overview = "Overview"
@@ -45,18 +46,26 @@ struct ResourceDetailView: View {
 
             Divider()
 
-            switch tab {
-            case .overview:
-                OverviewTab(object: object, kind: kind)
-            case .pods:
-                WorkloadPodsTab(object: object, kind: kind)
-            case .yaml:
-                YAMLTab(object: object, kind: kind)
-            case .logs:
-                LogView(object: object, kind: kind)
-            case .events:
-                EventsTab(object: object, kind: kind)
+            Group {
+                switch tab {
+                case .overview:
+                    OverviewTab(object: object, kind: kind)
+                case .pods:
+                    WorkloadPodsTab(object: object, kind: kind)
+                case .yaml:
+                    YAMLTab(object: object, kind: kind)
+                case .logs:
+                    LogView(object: object, kind: kind)
+                case .events:
+                    EventsTab(object: object, kind: kind)
+                }
             }
+            // Per-object identity: without this, selecting another row keeps
+            // the previous object's tab @State alive — an in-progress YAML
+            // draft would apply to the wrong object, revealed Secret keys
+            // leak across selections, and the log container picker keeps the
+            // previous pod's container.
+            .id(object.id)
         }
         .padding(.leading, 8) // grab gutter: keeps the resize cursor usable next to text views
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -97,7 +106,7 @@ struct ResourceDetailView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Spacer()
-                if onDelete != nil || onScale != nil || onForward != nil || kind.supportsRestart {
+                if onDelete != nil || onScale != nil || onForward != nil || onRestart != nil {
                     Menu {
                         if let onForward {
                             Button("Port Forward…", action: onForward)
@@ -105,8 +114,8 @@ struct ResourceDetailView: View {
                         if let onScale {
                             Button("Scale…", action: onScale)
                         }
-                        if kind.supportsRestart {
-                            Button("Rollout Restart") { model.restartObject(object, kind: kind) }
+                        if let onRestart {
+                            Button("Rollout Restart…", action: onRestart)
                         }
                         if let onDelete {
                             Divider()

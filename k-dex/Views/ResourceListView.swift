@@ -7,6 +7,7 @@ struct ResourceListView: View {
     @State private var deleteCandidate: KubeObject?
     @State private var scaleCandidate: KubeObject?
     @State private var forwardCandidate: KubeObject?
+    @State private var restartCandidate: KubeObject?
     @State private var showCreateSheet = false
     @State private var sortOrder: [ColumnSort] = []
     // Persists user-resized/reordered/hidden columns per resource kind.
@@ -108,7 +109,8 @@ struct ResourceListView: View {
                     kind: kind,
                     onDelete: kind.supportsDelete ? { deleteCandidate = object } : nil,
                     onScale: kind.supportsScale ? { scaleCandidate = object } : nil,
-                    onForward: kind.supportsPortForward ? { forwardCandidate = object } : nil
+                    onForward: kind.supportsPortForward ? { forwardCandidate = object } : nil,
+                    onRestart: kind.supportsRestart ? { restartCandidate = object } : nil
                 )
             }
         }
@@ -146,7 +148,22 @@ struct ResourceListView: View {
                 deleteCandidate = nil
             }
         } message: {
-            Text("This deletes the \(kind.kindName) from the cluster and cannot be undone.")
+            // Verbatim: cluster-supplied names must render literally, and in
+            // a multi-cluster tool "the cluster" is never specific enough.
+            Text(verbatim: deleteMessage(for: deleteCandidate))
+        }
+        .confirmationDialog(
+            "Restart \(restartCandidate?.name ?? "workload")?",
+            isPresented: Binding(get: { restartCandidate != nil }, set: { if !$0 { restartCandidate = nil } })
+        ) {
+            Button("Rollout Restart") {
+                if let object = restartCandidate {
+                    model.restartObject(object, kind: kind)
+                }
+                restartCandidate = nil
+            }
+        } message: {
+            Text(verbatim: restartMessage(for: restartCandidate))
         }
         .sheet(item: $scaleCandidate) { object in
             ScaleSheet(object: object, kind: kind)
@@ -162,6 +179,19 @@ struct ResourceListView: View {
         } message: {
             Text(model.actionError ?? "")
         }
+    }
+
+    private func deleteMessage(for object: KubeObject?) -> String {
+        guard let object else { return "" }
+        var scope = object.namespace.isEmpty ? "" : " in namespace \(object.namespace)"
+        scope += " on context \(model.selectedContext)"
+        return "This deletes \(kind.kindName) \u{2068}\(object.name)\u{2069}\(scope) and cannot be undone."
+    }
+
+    private func restartMessage(for object: KubeObject?) -> String {
+        guard let object else { return "" }
+        let scope = object.namespace.isEmpty ? "" : " in namespace \(object.namespace)"
+        return "This restarts every pod of \(kind.kindName) \u{2068}\(object.name)\u{2069}\(scope) on context \(model.selectedContext)."
     }
 
     // MARK: Sorting
@@ -271,7 +301,7 @@ struct ResourceListView: View {
         }
         if kind.supportsRestart {
             Button {
-                model.restartObject(object, kind: kind)
+                restartCandidate = object
             } label: {
                 Label("Restart", systemImage: "arrow.triangle.2.circlepath")
             }

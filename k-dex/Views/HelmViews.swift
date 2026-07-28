@@ -105,6 +105,7 @@ struct HelmListView: View {
         .detailPanel(isPresented: inspectorPresented) {
             if let release = model.selectedHelmRelease {
                 HelmDetailView(release: release)
+                    .id(release.id) // reset tab + reveal state per release
             }
         }
         .toolbar {
@@ -138,6 +139,11 @@ struct HelmDetailView: View {
     }
 
     @State private var tab: Tab = .overview
+    // Helm values and manifests routinely embed credentials (chart passwords,
+    // registry auth, rendered Secrets) — require an explicit reveal, like the
+    // Secret data section does.
+    @State private var revealedValues = false
+    @State private var revealedManifest = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -161,11 +167,15 @@ struct HelmDetailView: View {
             case .overview:
                 overview
             case .values:
-                YAMLTextView(text: release.values.isNull || release.values.object.isEmpty
-                    ? "# No user-supplied values"
-                    : release.values.prettyJSONString())
+                secretGated(revealed: $revealedValues, what: "values") {
+                    YAMLTextView(text: release.values.isNull || release.values.object.isEmpty
+                        ? "# No user-supplied values"
+                        : release.values.prettyJSONString())
+                }
             case .manifest:
-                YAMLTextView(text: release.manifest.isEmpty ? "# Manifest unavailable" : release.manifest)
+                secretGated(revealed: $revealedManifest, what: "manifest") {
+                    YAMLTextView(text: release.manifest.isEmpty ? "# Manifest unavailable" : release.manifest)
+                }
             case .notes:
                 ScrollView {
                     Text(release.notes.isEmpty ? "No notes." : release.notes)
@@ -203,6 +213,26 @@ struct HelmDetailView: View {
                 .font(.title3.weight(.semibold))
                 .textSelection(.enabled)
                 .lineLimit(2)
+        }
+    }
+
+    @ViewBuilder
+    private func secretGated(
+        revealed: Binding<Bool>,
+        what: String,
+        @ViewBuilder content: () -> some View
+    ) -> some View {
+        if revealed.wrappedValue {
+            content()
+        } else {
+            ContentUnavailableView {
+                Label("Hidden", systemImage: "eye.slash")
+            } description: {
+                Text("Release \(what) can contain passwords, tokens, and other secrets.")
+            } actions: {
+                Button("Show \(what.capitalized)") { revealed.wrappedValue = true }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
