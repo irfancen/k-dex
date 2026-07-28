@@ -30,7 +30,7 @@
 
 ## Each release
 
-1. Bump `MARKETING_VERSION` (and `CURRENT_PROJECT_VERSION`) in the project.
+1. Bump `MARKETING_VERSION` (semantic versioning: MAJOR.MINOR.PATCH) and `CURRENT_PROJECT_VERSION` in the project.
 2. `scripts/release.sh` — builds, signs, notarizes, staples; prints the DMG
    sha256.
 3. Tag and publish — the appcast **must** ship as a release asset alongside

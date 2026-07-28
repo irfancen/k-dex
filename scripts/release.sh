@@ -42,7 +42,33 @@ echo "==> Re-signing with Developer ID (hardened runtime, secure timestamp)"
 if [ -x "$APP/Contents/Helpers/kubectl" ]; then
     codesign --force --timestamp --options runtime --sign "$IDENTITY" "$APP/Contents/Helpers/kubectl"
 fi
-codesign --force --timestamp --options runtime --sign "$IDENTITY" "$APP"
+SPARKLE="$APP/Contents/Frameworks/Sparkle.framework"
+if [ -d "$SPARKLE" ]; then
+    # Every nested Sparkle executable must carry Developer ID + hardened
+    # runtime + timestamp itself, or notarization rejects the DMG. Preserve
+    # entitlements — the XPC services are sandboxed.
+    for nested in \
+        "$SPARKLE/Versions/B/XPCServices/Downloader.xpc" \
+        "$SPARKLE/Versions/B/XPCServices/Installer.xpc" \
+        "$SPARKLE/Versions/B/Autoupdate" \
+        "$SPARKLE/Versions/B/Updater.app"; do
+        if [ -e "$nested" ]; then
+            codesign --force --timestamp --options runtime \
+                --preserve-metadata=entitlements --sign "$IDENTITY" "$nested"
+        fi
+    done
+    codesign --force --timestamp --options runtime --sign "$IDENTITY" "$SPARKLE"
+fi
+# The final bundle signature occasionally fails with a transient
+# errSecInternalComponent (keychain/security-agent hiccup); retry.
+for attempt in 1 2 3; do
+    if codesign --force --timestamp --options runtime --sign "$IDENTITY" "$APP"; then
+        break
+    fi
+    if [ "$attempt" = 3 ]; then echo "error: codesign failed after retries"; exit 1; fi
+    echo "    transient codesign failure, retrying…"
+    sleep 3
+done
 codesign --verify --deep --strict "$APP"
 echo "    signature OK"
 
