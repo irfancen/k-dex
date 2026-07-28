@@ -25,8 +25,9 @@ final class LogStreamer {
 
     enum Target {
         case pod(name: String, container: String?)
-        /// All pods matching a label selector, with pod-name prefixes.
-        case selector(String)
+        /// All pods matching a label selector, with pod-name prefixes;
+        /// optionally narrowed to one container of each pod.
+        case selector(String, container: String?)
     }
 
     func start(
@@ -46,9 +47,20 @@ final class LogStreamer {
         switch target {
         case .pod(let name, let container):
             args.append(name)
-            if let container, !container.isEmpty { args += ["-c", container] }
-        case .selector(let selector):
-            args += ["-l", selector, "--prefix", "--all-containers=true", "--max-log-requests", "20"]
+            if let container, !container.isEmpty {
+                args += ["-c", container]
+            } else {
+                // "All Containers" on a multi-container pod; prefix lines so
+                // the streams stay distinguishable.
+                args += ["--all-containers=true", "--prefix"]
+            }
+        case .selector(let selector, let container):
+            args += ["-l", selector, "--prefix", "--max-log-requests", "20"]
+            if let container, !container.isEmpty {
+                args += ["-c", container]
+            } else {
+                args.append("--all-containers=true")
+            }
         }
         args += ["-n", namespace, "--context", context, "--tail", String(tail)]
         if timestamps { args.append("--timestamps") }

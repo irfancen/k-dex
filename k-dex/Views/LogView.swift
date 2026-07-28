@@ -25,6 +25,8 @@ struct LogView: View {
         self.object = object
         self.kind = kind
         self.allowsExpansion = allowsExpansion
+        // Pods must name a container (kubectl errors on multi-container pods
+        // otherwise); workloads default to all containers ("").
         let containers = kind == .pods
             ? object.raw["spec"]["containers"].array.map { $0["name"].stringValue }
             : []
@@ -34,9 +36,10 @@ struct LogView: View {
     private var isAggregate: Bool { kind != .pods }
     private var selector: String? { isAggregate ? KindHelpers.podSelectorString(object) : nil }
 
+    /// Pods carry containers at spec.*; workloads at spec.template.spec.*.
     private var containers: [String] {
-        guard kind == .pods else { return [] }
-        return (object.raw["spec"]["containers"].array + object.raw["spec"]["initContainers"].array)
+        let spec = kind == .pods ? object.raw["spec"] : object.raw["spec"]["template"]["spec"]
+        return (spec["containers"].array + spec["initContainers"].array)
             .map { $0["name"].stringValue }
     }
 
@@ -102,7 +105,7 @@ struct LogView: View {
     private func start() {
         let target: LogStreamer.Target
         if let selector {
-            target = .selector(selector)
+            target = .selector(selector, container: container.isEmpty ? nil : container)
         } else {
             target = .pod(name: object.name, container: container.isEmpty ? nil : container)
         }
@@ -181,11 +184,25 @@ struct LogView: View {
     private var controls: some View {
         HStack(spacing: 10) {
             if containers.count > 1 {
-                Picker("Container", selection: $container) {
-                    ForEach(containers, id: \.self) { Text($0) }
+                // Menu + fixed label instead of Picker: NSPopUpButton derives
+                // its width from its menu items (which differ per workload),
+                // so no frame arrangement renders it consistently. A Menu's
+                // button sizes to the label, which is pinned here.
+                Menu {
+                    Picker("Container", selection: $container) {
+                        Text("All Containers").tag("")
+                        ForEach(containers, id: \.self) { Text($0).tag($0) }
+                    }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
+                } label: {
+                    Text(container.isEmpty ? "All Containers" : container)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(width: 118, alignment: .leading)
                 }
-                .labelsHidden()
-                .frame(maxWidth: 160)
+                .fixedSize()
+                .help("Container")
             }
             Toggle("Follow", isOn: $follow)
                 .toggleStyle(.checkbox)
