@@ -1,0 +1,354 @@
+import SwiftUI
+import AppKit
+
+extension StatusTone {
+    var color: Color {
+        switch self {
+        case .ok: return .green
+        case .warn: return .orange
+        case .bad: return .red
+        case .neutral: return .gray
+        }
+    }
+}
+
+enum TableMetrics {
+    /// Uniform cell content height so rows are the same height on every
+    /// resource list, with or without usage bars.
+    static let rowHeight: CGFloat = 24
+}
+
+enum Pasteboard {
+    static func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+}
+
+/// Aptakube-style status: plain colored text, no capsule chrome.
+struct StatusBadge: View {
+    let text: String
+    let tone: StatusTone
+
+    var body: some View {
+        if text.isEmpty {
+            Text("–").foregroundStyle(.tertiary)
+        } else {
+            Text(text)
+                .fontWeight(.medium)
+                .lineLimit(1)
+                .foregroundStyle(tone == .neutral ? AnyShapeStyle(.secondary) : AnyShapeStyle(tone.color))
+        }
+    }
+}
+
+/// Compact "12m / 500m" cell with a usage bar underneath. Bounded values
+/// (vs limit/request) get threshold colors; relative values are neutral blue.
+struct UsageBar: View {
+    let text: String
+    let usage: UsageValue?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2.5) {
+            Text(text)
+                .font(.caption)
+                .monospacedDigit()
+                .lineLimit(1)
+            if let usage {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(.quaternary.opacity(0.6))
+                        Capsule()
+                            .fill(barColor(usage))
+                            .frame(width: max(2, geo.size.width * min(1, usage.fraction)))
+                    }
+                }
+                .frame(height: 3)
+            }
+        }
+    }
+
+    private func barColor(_ usage: UsageValue) -> Color {
+        guard usage.bounded else { return .blue.opacity(0.6) }
+        if usage.fraction < 0.7 { return .green }
+        if usage.fraction < 0.9 { return .orange }
+        return .red
+    }
+}
+
+struct ErrorBanner: View {
+    let message: String
+    var retry: (() -> Void)?
+
+    @State private var expanded = false
+
+    private var isLong: Bool { message.count > 160 || message.contains("\n") }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 4) {
+                if expanded {
+                    ScrollView {
+                        Text(message)
+                            .font(.callout)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: 240)
+                } else {
+                    Text(message)
+                        .font(.callout)
+                        .lineLimit(3)
+                        .textSelection(.enabled)
+                }
+                if isLong {
+                    Button(expanded ? "Show Less" : "Show Full Error") {
+                        expanded.toggle()
+                    }
+                    .buttonStyle(.link)
+                    .font(.caption)
+                }
+            }
+            Spacer()
+            if isLong {
+                Button {
+                    Pasteboard.copy(message)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+                .help("Copy error")
+            }
+            if let retry {
+                Button("Retry", action: retry)
+                    .controlSize(.small)
+            }
+        }
+        .padding(10)
+        .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.orange.opacity(0.35)))
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+    }
+}
+
+/// Simple wrapping layout used for label chips.
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 5
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > maxWidth {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+        let width = maxWidth.isFinite ? maxWidth : x
+        return CGSize(width: width, height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > bounds.minX, x + size.width > bounds.maxX {
+                x = bounds.minX
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+    }
+}
+
+struct LabelChip: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.caption.monospaced())
+            .lineLimit(1)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 5))
+            .textSelection(.enabled)
+    }
+}
+
+/// Makes the enclosing sheet window user-resizable. SwiftUI sheets on macOS
+/// don't get a resizable style mask even when their content declares a
+/// flexible frame, so the window has to be patched directly.
+struct SheetWindowConfigurator: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            view.window?.styleMask.insert(.resizable)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        nsView.window?.styleMask.insert(.resizable)
+    }
+}
+
+// MARK: - Custom detail split panel
+
+extension View {
+    /// Right-side detail panel with a fully controlled divider: hard width
+    /// clamping and drag-to-close. Replaces the native inspector, which does
+    /// not reliably enforce its width limits during aggressive drags.
+    func detailPanel<Panel: View>(
+        isPresented: Binding<Bool>,
+        @ViewBuilder panel: @escaping () -> Panel
+    ) -> some View {
+        modifier(DetailPanelModifier(isPresented: isPresented, panel: panel))
+    }
+}
+
+private struct DetailPanelModifier<Panel: View>: ViewModifier {
+    @Binding var isPresented: Bool
+    @ViewBuilder let panel: () -> Panel
+
+    @AppStorage("detail-panel-width") private var panelWidth = 440.0
+    @State private var dragStartWidth: Double?
+
+    private static var minWidth: Double { 330 }
+
+    func body(content: Content) -> some View {
+        GeometryReader { geo in
+            HStack(spacing: 0) {
+                content
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if isPresented {
+                    splitter(totalWidth: geo.size.width)
+                    panel()
+                        .frame(width: clamped(panelWidth, totalWidth: geo.size.width))
+                        .frame(maxHeight: .infinity)
+                        .background(.regularMaterial)
+                }
+            }
+        }
+    }
+
+    /// The panel may take at most 780pt and must leave the list ~500pt.
+    private func maxWidth(totalWidth: CGFloat) -> Double {
+        max(Self.minWidth + 30, min(780, Double(totalWidth) - 500))
+    }
+
+    private func clamped(_ width: Double, totalWidth: CGFloat) -> Double {
+        min(max(width, Self.minWidth), maxWidth(totalWidth: totalWidth))
+    }
+
+    private func splitter(totalWidth: CGFloat) -> some View {
+        Rectangle()
+            .fill(Color(nsColor: .separatorColor))
+            .frame(width: 1)
+            .frame(width: 9)
+            .contentShape(Rectangle())
+            .pointerStyle(.columnResize)
+            .gesture(
+                // Global coordinates: the splitter itself moves during the
+                // drag, so local-space translations feed back and jitter.
+                DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                    .onChanged { value in
+                        if dragStartWidth == nil { dragStartWidth = panelWidth }
+                        let proposed = (dragStartWidth ?? panelWidth) - Double(value.translation.width)
+                        panelWidth = clamped(proposed, totalWidth: totalWidth)
+                    }
+                    .onEnded { value in
+                        let proposed = (dragStartWidth ?? panelWidth) - Double(value.translation.width)
+                        dragStartWidth = nil
+                        // Dragging well past the minimum closes the panel.
+                        if proposed < Self.minWidth - 70 {
+                            isPresented = false
+                        }
+                    }
+            )
+    }
+}
+
+// MARK: - Shared toolbar controls
+
+struct NamespacePicker: View {
+    @Environment(AppModel.self) private var model
+
+    /// The live list, plus the current selection if it vanished (deleted
+    /// namespace) so the picker never shows an empty selection.
+    private var items: [String] {
+        var items = model.namespaces
+        if let selected = model.selectedNamespace, !items.contains(selected) {
+            items.append(selected)
+            items.sort()
+        }
+        return items
+    }
+
+    var body: some View {
+        Picker("Namespace", selection: Binding(
+            get: { model.selectedNamespace },
+            set: { model.setNamespace($0) }
+        )) {
+            Text("All Namespaces").tag(String?.none)
+            if !items.isEmpty {
+                Divider()
+                ForEach(items, id: \.self) { namespace in
+                    Text(namespace).tag(String?.some(namespace))
+                }
+            }
+        }
+        .pickerStyle(.menu)
+        .buttonStyle(.borderless)
+        .fixedSize()
+        .padding(.horizontal, 12)
+        .padding(.vertical, 3)
+        .help("Filter by namespace")
+    }
+}
+
+struct RefreshControls: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        Menu {
+            Picker("Auto-refresh", selection: Binding(
+                get: { model.refreshSeconds },
+                set: { model.refreshSeconds = $0 }
+            )) {
+                Text("Off").tag(0)
+                Text("Every 2s").tag(2)
+                Text("Every 5s").tag(5)
+                Text("Every 10s").tag(10)
+                Text("Every 30s").tag(30)
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+        } label: {
+            Label("Auto-refresh", systemImage: "timer")
+        }
+        .help("Auto-refresh interval")
+
+        Button {
+            model.requestRefresh()
+        } label: {
+            if model.isLoading {
+                ProgressView().controlSize(.small)
+            } else {
+                Label("Refresh", systemImage: "arrow.clockwise")
+            }
+        }
+        .help("Refresh now (⌘R)")
+    }
+}

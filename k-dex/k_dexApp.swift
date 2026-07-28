@@ -1,17 +1,26 @@
-//
-//  k_dexApp.swift
-//  k-dex
-//
-//  Created by irfancen on 24/07/26.
-//
-
 import SwiftUI
 
 @main
-struct k_dexApp: App {
+struct KDexApp: App {
+    @State private var model = AppModel()
+    @State private var portForwards = PortForwardManager()
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            RootView()
+                .environment(model)
+                .environment(portForwards)
+                .frame(minWidth: 980, minHeight: 580)
+        }
+        .commands {
+            CommandGroup(after: .toolbar) {
+                Button("Refresh") { model.requestRefresh() }
+                    .keyboardShortcut("r", modifiers: .command)
+            }
+        }
+
+        Settings {
+            SettingsView()
         }
     }
 }
