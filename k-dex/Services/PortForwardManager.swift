@@ -1,0 +1,95 @@
+import Foundation
+import Observation
+
+/// Owns all active `kubectl port-forward` subprocesses.
+@MainActor
+@Observable
+final class PortForwardManager {
+    enum ForwardState: Equatable {
+        case starting
+        case active
+        case failed(String)
+    }
+
+    struct Forward: Identifiable {
+        let id = UUID()
+        let context: String
+        let namespace: String
+        /// "pod" or "service"
+        let targetType: String
+        let targetName: String
+        let localPort: Int
+        let remotePort: Int
+        var state: ForwardState = .starting
+
+        var displayTarget: String { "\(targetType)/\(targetName)" }
+        var localURL: URL? { URL(string: "http://localhost:\(localPort)") }
+    }
+
+    private(set) var forwards: [Forward] = []
+    @ObservationIgnored private var processes: [UUID: Process] = [:]
+
+    func start(context: String, namespace: String, targetType: String, targetName: String, localPort: Int, remotePort: Int) {
+        let forward = Forward(
+            context: context,
+            namespace: namespace,
+            targetType: targetType,
+            targetName: targetName,
+            localPort: localPort,
+            remotePort: remotePort
+        )
+        forwards.append(forward)
+        let id = forward.id
+
+        let args = [
+            "port-forward",
+            "\(targetType)/\(targetName)",
+            "\(localPort):\(remotePort)",
+            "-n", namespace,
+            "--context", context,
+        ]
+        do {
+            let process = try ProcessRunner.stream(
+                "kubectl", args,
+                onLines: { [weak self] batch in
+                    guard batch.contains(where: { $0.contains("Forwarding from") }) else { return }
+                    Task { @MainActor in self?.update(id: id, state: .active) }
+                },
+                onExit: { [weak self] code, stderr in
+                    Task { @MainActor in
+                        guard let self, let index = self.forwards.firstIndex(where: { $0.id == id }) else { return }
+                        self.processes[id] = nil
+                        if code != 0, !stderr.isEmpty {
+                            self.forwards[index].state = .failed(stderr)
+                        } else {
+                            self.forwards.remove(at: index)
+                        }
+                    }
+                }
+            )
+            processes[id] = process
+        } catch {
+            update(id: id, state: .failed(error.localizedDescription))
+        }
+    }
+
+    func stop(id: UUID) {
+        if let process = processes[id], process.isRunning {
+            process.terminate() // removal happens in onExit
+        } else {
+            forwards.removeAll { $0.id == id }
+            processes[id] = nil
+        }
+    }
+
+    func stopAll() {
+        for process in processes.values where process.isRunning {
+            process.terminate()
+        }
+    }
+
+    private func update(id: UUID, state: ForwardState) {
+        guard let index = forwards.firstIndex(where: { $0.id == id }) else { return }
+        forwards[index].state = state
+    }
+}
