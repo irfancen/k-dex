@@ -78,13 +78,22 @@ nonisolated enum Kubectl {
         let crds = await crdFetch
 
         var kinds = (try? await resourceList(group: "", version: "v1", crds: crds, context: context)) ?? []
+        // Bounded fan-out: one kubectl per API group, but GUI apps get a soft
+        // 256-fd limit and each subprocess costs four descriptors — a big
+        // cluster has 40+ groups, so cap what runs at once.
         await withTaskGroup(of: [ResourceKind].self) { taskGroup in
-            for (name, version) in groups {
+            var pending = groups.makeIterator()
+            func addNext() {
+                guard let (name, version) = pending.next() else { return }
                 taskGroup.addTask {
                     (try? await resourceList(group: name, version: version, crds: crds, context: context)) ?? []
                 }
             }
-            for await batch in taskGroup { kinds += batch }
+            for _ in 0..<6 { addNext() }
+            for await batch in taskGroup {
+                kinds += batch
+                addNext()
+            }
         }
 
         var byID = Dictionary(kinds.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })

@@ -1,3 +1,4 @@
+import Compression
 import Foundation
 
 /// Reads Helm releases straight from the cluster: Helm 3 stores each revision
@@ -60,7 +61,7 @@ nonisolated enum HelmService {
            let inner = Data(base64Encoded: outer) {
             let json: Data?
             if inner.count > 2, inner[inner.startIndex] == 0x1f, inner[inner.startIndex + 1] == 0x8b {
-                json = try? await gunzip(inner)
+                json = try? gunzip(inner)
             } else {
                 json = inner
             }
@@ -86,8 +87,49 @@ nonisolated enum HelmService {
         )
     }
 
-    private static func gunzip(_ data: Data) async throws -> Data {
-        let result = try await ProcessRunner.runChecked("/usr/bin/gunzip", ["-c"], stdin: data)
-        return result.stdout
+    private struct GzipError: Error {}
+
+    /// In-process gzip decode via the Compression framework — no subprocess
+    /// per release, and output is bounded (the payload is cluster-writable,
+    /// so an unbounded inflate would be a decompression-bomb vector).
+    private static func gunzip(_ data: Data) throws -> Data {
+        let bytes = [UInt8](data)
+        guard bytes.count > 18, bytes[0] == 0x1f, bytes[1] == 0x8b, bytes[2] == 8 else { throw GzipError() }
+        let flags = bytes[3]
+        var index = 10
+        if flags & 0x04 != 0 { // FEXTRA
+            guard index + 2 <= bytes.count else { throw GzipError() }
+            index += 2 + (Int(bytes[index]) | Int(bytes[index + 1]) << 8)
+        }
+        if flags & 0x08 != 0 { // FNAME
+            while index < bytes.count, bytes[index] != 0 { index += 1 }
+            index += 1
+        }
+        if flags & 0x10 != 0 { // FCOMMENT
+            while index < bytes.count, bytes[index] != 0 { index += 1 }
+            index += 1
+        }
+        if flags & 0x02 != 0 { index += 2 } // FHCRC
+        guard index < bytes.count - 8 else { throw GzipError() }
+
+        // Trailer's ISIZE gives the exact inflated size (mod 2^32).
+        let count = bytes.count
+        let inflatedSize = Int(bytes[count - 4]) | Int(bytes[count - 3]) << 8
+            | Int(bytes[count - 2]) << 16 | Int(bytes[count - 1]) << 24
+        guard inflatedSize > 0, inflatedSize <= 64 * 1024 * 1024 else { throw GzipError() }
+
+        let deflated = [UInt8](bytes[index..<(count - 8)])
+        var inflated = [UInt8](repeating: 0, count: inflatedSize)
+        let written = deflated.withUnsafeBufferPointer { source in
+            inflated.withUnsafeMutableBufferPointer { destination in
+                compression_decode_buffer(
+                    destination.baseAddress!, destination.count,
+                    source.baseAddress!, source.count,
+                    nil, COMPRESSION_ZLIB
+                )
+            }
+        }
+        guard written == inflatedSize else { throw GzipError() }
+        return Data(inflated)
     }
 }
