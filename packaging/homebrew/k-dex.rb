@@ -5,10 +5,10 @@ cask "k-dex" do
   version "1.0"
   sha256 "REPLACE_WITH_DMG_SHA256"
 
-  url "https://github.com/REPLACE_GITHUB_USER/k-dex/releases/download/v#{version}/K-Dex-#{version}.dmg"
+  url "https://github.com/irfancen/k-dex/releases/download/v#{version}/K-Dex-#{version}.dmg"
   name "K-Dex"
   desc "Fast, native Kubernetes desktop client"
-  homepage "https://github.com/REPLACE_GITHUB_USER/k-dex"
+  homepage "https://github.com/irfancen/k-dex"
 
   depends_on macos: ">= :tahoe"
 

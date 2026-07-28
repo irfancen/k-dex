@@ -10,6 +10,10 @@
 		8366EE0A301364D40084F6DF /* k-dex.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = "k-dex.app"; path = "K-Dex.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXBuildFile section */
+		8366EEB3301364D40084F6DF /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 8366EEB2301364D40084F6DF /* Sparkle */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		8366EE0C301364D40084F6DF /* k-dex */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
@@ -23,6 +27,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8366EEB3301364D40084F6DF /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -66,6 +71,7 @@
 			);
 			name = "k-dex";
 			packageProductDependencies = (
+				8366EEB2301364D40084F6DF /* Sparkle */,
 			);
 			productName = "k-dex";
 			productReference = 8366EE0A301364D40084F6DF /* k-dex.app */;
@@ -94,6 +100,9 @@
 				Base,
 			);
 			mainGroup = 8366EE01301364D40084F6DF;
+			packageReferences = (
+				8366EEB1301364D40084F6DF /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 8366EE0B301364D40084F6DF /* Products */;
@@ -278,6 +287,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = NO;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -310,6 +320,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = NO;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -350,6 +361,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		8366EEB1301364D40084F6DF /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		8366EEB2301364D40084F6DF /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 8366EEB1301364D40084F6DF /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 8366EE02301364D40084F6DF /* Project object */;
 }

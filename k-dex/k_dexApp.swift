@@ -1,4 +1,5 @@
 import AppKit
+import Sparkle
 import SwiftUI
 
 /// Scene-independent termination hook: `willTerminateNotification` observers
@@ -16,6 +17,10 @@ struct KDexApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var model = AppModel()
     @State private var portForwards = PortForwardManager()
+    /// Sparkle auto-updates (direct-distribution builds).
+    private let updaterController = SPUStandardUpdaterController(
+        startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil
+    )
 
     var body: some Scene {
         WindowGroup {
@@ -25,6 +30,11 @@ struct KDexApp: App {
                 .frame(minWidth: 980, minHeight: 580)
         }
         .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") {
+                    updaterController.updater.checkForUpdates()
+                }
+            }
             CommandGroup(after: .toolbar) {
                 Button("Refresh") { model.requestRefresh() }
                     .keyboardShortcut("r", modifiers: .command)

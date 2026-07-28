@@ -65,5 +65,16 @@ else
     echo "    notarized + stapled"
 fi
 
+echo "==> Generating Sparkle appcast"
+SPARKLE_BIN=$(find "$HOME/Library/Developer/Xcode/DerivedData" -type d -path "*artifacts/sparkle/Sparkle/bin" 2>/dev/null | head -1)
+if [ -n "$SPARKLE_BIN" ]; then
+    "$SPARKLE_BIN/generate_appcast" build \
+        --download-url-prefix "https://github.com/irfancen/k-dex/releases/download/v$VERSION/" \
+        -o build/appcast.xml
+    echo "    build/appcast.xml (upload as a release asset alongside the DMG)"
+else
+    echo "warning: Sparkle tools not found in DerivedData; skipping appcast"
+fi
+
 shasum -a 256 "$DMG"
 echo "==> Done: $DMG"
