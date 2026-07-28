@@ -25,11 +25,14 @@ final class AppModel {
     var sidebarSelection: SidebarItem? = .overview
 
     /// Selector filter applied to the Pods list — a label selector (pods of one
-    /// deployment) or a field selector (pods on one node).
+    /// deployment) or a field selector (pods on one node). `ownerUIDs`, when
+    /// present, narrows the label-selected pods to those actually owned by
+    /// the originating workload (selectors can collide across workloads).
     struct PodFilter: Equatable {
         let selector: String
         let label: String
         var isFieldSelector = false
+        var ownerUIDs: Set<String>?
     }
 
     private(set) var podFilter: PodFilter?
@@ -211,10 +214,16 @@ final class AppModel {
         isFieldSelector: Bool = false,
         filterLabel: String,
         namespace: String?,
+        ownerUIDs: Set<String>? = nil,
         selectNamespace: String? = nil,
         selectName: String? = nil
     ) {
-        podFilter = PodFilter(selector: selector, label: filterLabel, isFieldSelector: isFieldSelector)
+        podFilter = PodFilter(
+            selector: selector,
+            label: filterLabel,
+            isFieldSelector: isFieldSelector,
+            ownerUIDs: ownerUIDs
+        )
         pendingSelection = selectName.map { (.pods, selectNamespace ?? namespace ?? "", $0) }
         if let namespace {
             if let current = selectedNamespace, current != namespace {
@@ -374,7 +383,7 @@ final class AppModel {
                 lastOverviewAt = Date()
             case .resource(let kind):
                 let namespace = kind.isNamespaced ? selectedNamespace : nil
-                let fetched: [KubeObject]
+                var fetched: [KubeObject]
                 if kind == .pods, let filter = podFilter {
                     fetched = try await Kubectl.pods(
                         matching: filter.selector,
@@ -382,6 +391,9 @@ final class AppModel {
                         namespace: namespace,
                         context: selectedContext
                     )
+                    if let owners = filter.ownerUIDs {
+                        fetched = fetched.filter { KindHelpers.isOwned($0, byAny: owners) }
+                    }
                 } else {
                     fetched = try await Kubectl.list(kind: kind, context: selectedContext, namespace: namespace)
                 }
@@ -435,6 +447,11 @@ final class AppModel {
 
     private func applyWatchEvents(spec: KubectlWatcher.Spec, upserts: [KubeObject], deletes: [String]) {
         guard watcher.spec == spec, currentKind == spec.kind else { return }
+        var upserts = upserts
+        // The watch runs on the label selector; re-apply ownership narrowing.
+        if spec.kind == .pods, let owners = podFilter?.ownerUIDs {
+            upserts = upserts.filter { KindHelpers.isOwned($0, byAny: owners) }
+        }
         var byID = Dictionary(objects.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
         for object in upserts { byID[object.id] = object }
         for id in deletes { byID.removeValue(forKey: id) }

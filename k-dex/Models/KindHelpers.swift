@@ -170,6 +170,28 @@ nonisolated enum KindHelpers {
         }
     }
 
+    /// True when the object's ownerReferences name any of the given uids.
+    static func isOwned(_ object: KubeObject, byAny uids: Set<String>) -> Bool {
+        object.raw["metadata"]["ownerReferences"].array.contains { uids.contains($0["uid"].stringValue) }
+    }
+
+    /// The uid set identifying a workload's *own* pods. Label selectors alone
+    /// can collide with sibling workloads sharing labels (a Deployment and a
+    /// StatefulSet both selecting app=web); ownership doesn't. Deployments
+    /// own pods through their ReplicaSets, so those are resolved first.
+    /// Returns nil when resolution fails — callers fall back to selector-only.
+    static func podOwnerUIDs(of workload: KubeObject, kind: ResourceKind, context: String) async -> Set<String>? {
+        guard !workload.uid.isEmpty else { return nil }
+        guard kind == .deployments else { return [workload.uid] }
+        guard let replicaSets = try? await Kubectl.list(
+            kind: .replicaSets,
+            context: context,
+            namespace: workload.namespace.isEmpty ? nil : workload.namespace
+        ) else { return nil }
+        let owned = replicaSets.filter { isOwned($0, byAny: [workload.uid]) }.map(\.uid)
+        return owned.isEmpty ? [workload.uid] : Set(owned)
+    }
+
     /// "app=web,tier=frontend" from a workload's matchLabels, for `kubectl get pods -l`.
     static func podSelectorString(_ obj: KubeObject) -> String? {
         let matchLabels = obj.raw["spec"]["selector"]["matchLabels"].stringDictionary

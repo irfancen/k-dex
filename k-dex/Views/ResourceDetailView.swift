@@ -402,6 +402,9 @@ private struct WorkloadPodsTab: View {
     @State private var pods: [KubeObject] = []
     @State private var loading = true
     @State private var error: String?
+    /// Owner uids narrowing selector matches to this workload's own pods —
+    /// label selectors can collide with sibling workloads sharing labels.
+    @State private var ownerUIDs: Set<String>?
 
     /// Nodes list their pods via a spec.nodeName field selector; workloads
     /// via their matchLabels selector.
@@ -478,6 +481,7 @@ private struct WorkloadPodsTab: View {
                 selector: selector,
                 filterLabel: "\(kind.kindName) \(object.name)",
                 namespace: object.namespace,
+                ownerUIDs: ownerUIDs,
                 selectName: selectPod?.name
             )
         }
@@ -511,7 +515,7 @@ private struct WorkloadPodsTab: View {
         loading = true
         error = nil
         do {
-            let fetched: [KubeObject]
+            var fetched: [KubeObject]
             if isNode {
                 fetched = try await Kubectl.pods(
                     matching: "spec.nodeName=\(object.name)",
@@ -525,6 +529,10 @@ private struct WorkloadPodsTab: View {
                     namespace: object.namespace.isEmpty ? nil : object.namespace,
                     context: model.selectedContext
                 )
+                ownerUIDs = await KindHelpers.podOwnerUIDs(of: object, kind: kind, context: model.selectedContext)
+                if let owners = ownerUIDs {
+                    fetched = fetched.filter { KindHelpers.isOwned($0, byAny: owners) }
+                }
             } else {
                 fetched = []
             }
