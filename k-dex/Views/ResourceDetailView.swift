@@ -169,15 +169,15 @@ private struct OverviewTab: View {
                 Section("Details") {
                     ForEach(kind.columns) { column in
                         LabeledContent(column.title) {
-                            if let tone = column.tone {
-                                StatusBadge(text: column.value(object, rowContext), tone: tone(object, rowContext))
+                            let cell = column.cell(object, rowContext)
+                            if column.style == .badge {
+                                StatusBadge(text: cell.text, tone: cell.tone ?? .neutral)
                             } else {
-                                let value = column.value(object, rowContext)
-                                Text(value)
+                                Text(cell.text)
                                     .textSelection(.enabled)
                                     .lineLimit(1)
                                     .truncationMode(.middle)
-                                    .help(value)
+                                    .help(cell.text)
                             }
                         }
                     }

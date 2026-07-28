@@ -36,13 +36,15 @@ struct ResourceListView: View {
 
             TableColumnForEach(columns) { column in
                 TableColumn(column.title, sortUsing: ColumnSort(id: column.id)) { object in
+                    let cell = column.cell(object, rowContext)
                     Group {
-                        if let tone = column.tone {
-                            StatusBadge(text: column.value(object, rowContext), tone: tone(object, rowContext))
-                        } else if let fraction = column.fraction {
-                            UsageBar(text: column.value(object, rowContext), usage: fraction(object, rowContext))
-                        } else {
-                            Text(column.value(object, rowContext))
+                        switch column.style {
+                        case .badge:
+                            StatusBadge(text: cell.text, tone: cell.tone ?? .neutral)
+                        case .usage:
+                            UsageBar(text: cell.text, usage: cell.usage)
+                        case .plain:
+                            Text(cell.text)
                                 .monospacedDigit()
                                 .lineLimit(1)
                                 .truncationMode(.tail)
@@ -196,67 +198,69 @@ struct ResourceListView: View {
 
     // MARK: Sorting
 
-    /// Applies header-click sorting with type-aware comparisons (quantities,
-    /// x/y ratios, numbers, dates) instead of plain string compares.
+    /// Header-click sorting with type-aware comparisons (quantities, x/y
+    /// ratios, numbers, dates). Decorate–sort–undecorate: keys are extracted
+    /// once per row, never twice per comparison — cell extraction and
+    /// quantity parsing are far too expensive for an O(n log n) comparator.
     private func sortedRows(_ rows: [KubeObject], _ ctx: RowContext) -> [KubeObject] {
         guard let sort = sortOrder.first else { return rows }
         let ascending = sort.order == .forward
-        return rows.sorted { lhs, rhs in
-            let result = compare(sort.id, lhs, rhs, ctx)
+        let column = kind.columns.first { $0.id == sort.id } // resolved once
+
+        let keyed = rows.map { object in
+            (row: object, key: sortKey(for: sort.id, column: column, object: object, ctx: ctx))
+        }
+        return keyed.sorted { lhs, rhs in
+            let result = Self.compare(lhs.key, rhs.key)
             guard result != .orderedSame else { return false }
             return ascending ? result == .orderedAscending : result == .orderedDescending
+        }.map(\.row)
+    }
+
+    private struct SortKey {
+        var text = ""
+        var tieBreak = ""
+        var numeric: Double?
+        var date: Date?
+    }
+
+    private func sortKey(for columnID: String, column: ColumnSpec?, object: KubeObject, ctx: RowContext) -> SortKey {
+        switch columnID {
+        case "name":
+            return SortKey(text: object.name, tieBreak: object.namespace)
+        case "Namespace":
+            return SortKey(text: object.namespace, tieBreak: object.name)
+        case "Age":
+            return SortKey(date: kind.ageDate(object) ?? .distantPast)
+        case "Last Restart":
+            return SortKey(date: lastRestartDate(object, ctx) ?? .distantPast)
+        default:
+            guard let column else { return SortKey() }
+            let text = column.cell(object, ctx).text
+            return SortKey(text: text, numeric: ColumnSorting.numericValue(text, columnID: columnID))
         }
     }
 
-    private func compare(_ columnID: String, _ lhs: KubeObject, _ rhs: KubeObject, _ ctx: RowContext) -> ComparisonResult {
-        switch columnID {
-        case "name":
-            let result = lhs.name.localizedStandardCompare(rhs.name)
-            return result == .orderedSame ? lhs.namespace.localizedStandardCompare(rhs.namespace) : result
-        case "Namespace":
-            let result = lhs.namespace.localizedStandardCompare(rhs.namespace)
-            return result == .orderedSame ? lhs.name.localizedStandardCompare(rhs.name) : result
-        case "Age":
-            let left = kind.ageDate(lhs) ?? .distantPast
-            let right = kind.ageDate(rhs) ?? .distantPast
-            // Ascending = youngest first.
+    private nonisolated static func compare(_ lhs: SortKey, _ rhs: SortKey) -> ComparisonResult {
+        if let left = lhs.date, let right = rhs.date {
+            // Ascending = newest first.
             if left == right { return .orderedSame }
             return left > right ? .orderedAscending : .orderedDescending
-        case "Last Restart":
-            let left = lastRestartDate(lhs, ctx) ?? .distantPast
-            let right = lastRestartDate(rhs, ctx) ?? .distantPast
-            // Ascending = most recent restart first.
-            if left == right { return .orderedSame }
-            return left > right ? .orderedAscending : .orderedDescending
-        default:
-            guard let column = kind.columns.first(where: { $0.id == columnID }) else { return .orderedSame }
-            let leftText = column.value(lhs, ctx)
-            let rightText = column.value(rhs, ctx)
-            if let leftNum = Self.numericValue(leftText, columnID: columnID),
-               let rightNum = Self.numericValue(rightText, columnID: columnID) {
-                if leftNum == rightNum { return .orderedSame }
-                return leftNum < rightNum ? .orderedAscending : .orderedDescending
-            }
-            return leftText.localizedStandardCompare(rightText)
         }
+        if let left = lhs.numeric, let right = rhs.numeric {
+            if left == right { return .orderedSame }
+            return left < right ? .orderedAscending : .orderedDescending
+        }
+        // Numeric rows sort before non-numeric ("–") so the ordering is total.
+        if lhs.numeric != nil { return .orderedAscending }
+        if rhs.numeric != nil { return .orderedDescending }
+        let result = lhs.text.localizedStandardCompare(rhs.text)
+        return result == .orderedSame ? lhs.tieBreak.localizedStandardCompare(rhs.tieBreak) : result
     }
 
     private func lastRestartDate(_ object: KubeObject, _ ctx: RowContext) -> Date? {
         if kind == .pods { return KindHelpers.podLastRestart(object) }
         return ctx.workloadUsage["\(object.namespace)/\(object.name)"]?.lastRestart
-    }
-
-    private nonisolated static func numericValue(_ text: String, columnID: String) -> Double? {
-        guard let token = text.split(separator: " ").first.map(String.init), token != "–" else { return nil }
-        // "1/2" ready ratios → sort by the ready count.
-        if token.contains("/") {
-            let parts = token.split(separator: "/")
-            if parts.count == 2, let ready = Double(parts[0]) { return ready }
-        }
-        if columnID.hasPrefix("CPU") { return Quantity.cpuMillicores(token) }
-        if columnID.hasPrefix("Memory") || columnID.hasPrefix("Mem") { return Quantity.memoryBytes(token) }
-        if let plain = Double(token) { return plain }
-        return Quantity.memoryBytes(token) // catches "1Gi" capacities etc.
     }
 
     private var inspectorPresented: Binding<Bool> {
