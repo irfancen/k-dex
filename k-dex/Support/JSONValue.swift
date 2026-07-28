@@ -83,7 +83,10 @@ nonisolated extension JSONValue {
 
     var int: Int? {
         switch self {
-        case .number(let value): return Int(value)
+        case .number(let value):
+            // Int(_: Double) traps on non-finite and out-of-range values.
+            guard value.isFinite, value > -9.0e18, value < 9.0e18 else { return nil }
+            return Int(value)
         case .string(let value): return Int(value)
         default: return nil
         }

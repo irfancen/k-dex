@@ -342,15 +342,19 @@ nonisolated struct ResourceKind: Identifiable, Hashable, Sendable {
             showsPods: true,
             columns: [
                 ColumnSpec("Completions", ideal: 94, max: 114) { obj, _ in
-                    "\(obj.raw["status"]["succeeded"].int ?? 0)/\(obj.raw["spec"]["completions"].int ?? 1)"
+                    // Work-queue jobs leave completions unset; parallelism is
+                    // the meaningful denominator there.
+                    let desired = obj.raw["spec"]["completions"].int
+                        ?? obj.raw["spec"]["parallelism"].int ?? 1
+                    return "\(obj.raw["status"]["succeeded"].int ?? 0)/\(desired)"
                 },
                 ColumnSpec("Status", ideal: 90, max: 120, tone: { obj, _ in KindHelpers.jobStatus(obj).1 }) { obj, _ in
                     KindHelpers.jobStatus(obj).0
                 },
-                ColumnSpec("Duration", ideal: 70, max: 90) { obj, _ in
+                ColumnSpec("Duration", ideal: 70, max: 90) { obj, ctx in
                     Fmt.duration(
                         from: Fmt.parseDate(obj.raw["status"]["startTime"].string),
-                        to: Fmt.parseDate(obj.raw["status"]["completionTime"].string)
+                        to: Fmt.parseDate(obj.raw["status"]["completionTime"].string) ?? ctx.now
                     )
                 },
             ])
@@ -689,11 +693,30 @@ nonisolated struct ResourceKind: Identifiable, Hashable, Sendable {
 
 /// Shared status/derivation helpers used by column extractors and detail views.
 nonisolated enum KindHelpers {
-    static func podReady(_ obj: KubeObject) -> String {
+    /// Ready/total counts matching kubectl's printer: native sidecars (init
+    /// containers with restartPolicy: Always, k8s 1.29+) count toward READY.
+    static func podReadyCounts(_ obj: KubeObject) -> (ready: Int, total: Int) {
         let statuses = obj.raw["status"]["containerStatuses"].array
-        let ready = statuses.filter { $0["ready"].bool == true }.count
-        let total = max(obj.raw["spec"]["containers"].array.count, statuses.count)
-        return "\(ready)/\(total)"
+        var ready = statuses.filter { $0["ready"].bool == true }.count
+        var total = max(obj.raw["spec"]["containers"].array.count, statuses.count)
+
+        let sidecarNames = Set(
+            obj.raw["spec"]["initContainers"].array
+                .filter { $0["restartPolicy"].stringValue == "Always" }
+                .map { $0["name"].stringValue }
+        )
+        if !sidecarNames.isEmpty {
+            total += sidecarNames.count
+            ready += obj.raw["status"]["initContainerStatuses"].array
+                .filter { sidecarNames.contains($0["name"].stringValue) && $0["ready"].bool == true }
+                .count
+        }
+        return (ready, total)
+    }
+
+    static func podReady(_ obj: KubeObject) -> String {
+        let counts = podReadyCounts(obj)
+        return "\(counts.ready)/\(counts.total)"
     }
 
     /// Most recent container restart time (lastState.terminated.finishedAt).
@@ -711,12 +734,10 @@ nonisolated enum KindHelpers {
     static func podReadyTone(_ obj: KubeObject) -> StatusTone {
         let phase = obj.raw["status"]["phase"].stringValue
         if phase == "Succeeded" { return .neutral }
-        let statuses = obj.raw["status"]["containerStatuses"].array
-        let ready = statuses.filter { $0["ready"].bool == true }.count
-        let total = max(obj.raw["spec"]["containers"].array.count, statuses.count)
-        if total == 0 { return .neutral }
-        if ready >= total { return .ok }
-        return ready == 0 ? .bad : .warn
+        let counts = podReadyCounts(obj)
+        if counts.total == 0 { return .neutral }
+        if counts.ready >= counts.total { return .ok }
+        return counts.ready == 0 ? .bad : .warn
     }
 
     static func podStatus(_ obj: KubeObject) -> (String, StatusTone) {
@@ -811,7 +832,11 @@ nonisolated enum KindHelpers {
         if !lb.isEmpty { return lb.joined(separator: ", ") }
         let external = obj.raw["spec"]["externalIPs"].array.map(\.displayString)
         if !external.isEmpty { return external.joined(separator: ", ") }
-        return obj.raw["spec"]["type"].stringValue == "LoadBalancer" ? "<pending>" : ""
+        switch obj.raw["spec"]["type"].stringValue {
+        case "ExternalName": return obj.raw["spec"]["externalName"].stringValue
+        case "LoadBalancer": return "<pending>"
+        default: return ""
+        }
     }
 
     static func pvcTone(_ obj: KubeObject) -> StatusTone {

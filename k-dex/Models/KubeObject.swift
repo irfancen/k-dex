@@ -28,8 +28,12 @@ nonisolated struct KubeObject: Identifiable, Sendable, Hashable {
     /// The controller that owns this object, e.g. "ReplicaSet/web-7d4b9".
     var controlledBy: String? {
         let owners = raw["metadata"]["ownerReferences"].array
-        guard let first = owners.first else { return nil }
-        return "\(first["kind"].stringValue)/\(first["name"].stringValue)"
+        // Prefer the reference marked controller:true — the first entry may
+        // be a non-controlling owner (e.g. an operator's CR).
+        guard let owner = owners.first(where: { $0["controller"].bool == true }) ?? owners.first else {
+            return nil
+        }
+        return "\(owner["kind"].stringValue)/\(owner["name"].stringValue)"
     }
 
     static func == (lhs: KubeObject, rhs: KubeObject) -> Bool {

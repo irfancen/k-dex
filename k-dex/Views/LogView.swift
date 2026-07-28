@@ -311,7 +311,9 @@ private struct LogTextView: NSViewRepresentable {
         }
 
         private static func color(for podName: String) -> NSColor {
-            palette[abs(LogLineParser.stableHash(podName)) % palette.count]
+            // Not abs(): abs(Int.min) traps, and the hash input is
+            // cluster-controlled text.
+            palette[Int(UInt(bitPattern: LogLineParser.stableHash(podName)) % UInt(palette.count))]
         }
     }
 }
