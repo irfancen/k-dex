@@ -78,6 +78,7 @@ final class AppModel {
     @ObservationIgnored private var watchStartedAt: Date?
     @ObservationIgnored private var watchFailures = 0
     @ObservationIgnored private var lastListAt: Date = .distantPast
+    @ObservationIgnored private var lastOverviewAt: Date = .distantPast
     @ObservationIgnored private var generation = 0
     /// Set when navigating to a kind with the intent of selecting one object once loaded.
     @ObservationIgnored private var pendingSelection: (kind: ResourceKind, namespace: String, name: String)?
@@ -249,6 +250,12 @@ final class AppModel {
     }
 
     private func clearData() {
+        // Invalidate any in-flight refresh: without this, a refresh suspended
+        // inside a kubectl call for the *previous* context/selection would
+        // resume, pass the generation guard, and write stale objects — mixing
+        // two clusters into one table after a context switch.
+        generation += 1
+        lastListAt = .distantPast
         watcher.stop()
         isWatching = false
         watchFailures = 0
@@ -263,9 +270,13 @@ final class AppModel {
 
     private func loadNamespaces() async {
         lastNamespaceLoad = Date()
+        let context = selectedContext
         do {
-            namespaces = try await Kubectl.namespaces(context: selectedContext)
+            let loaded = try await Kubectl.namespaces(context: context)
+            guard context == selectedContext else { return } // switched mid-fetch
+            namespaces = loaded
         } catch {
+            guard context == selectedContext else { return }
             // RBAC may forbid listing namespaces; keep the picker minimal.
             namespaces = selectedNamespace.map { [$0] } ?? []
         }
@@ -273,8 +284,12 @@ final class AppModel {
 
     private func loadKindCatalog() async {
         lastCRDLoad = Date()
+        let context = selectedContext
         // Discovery failure (RBAC, flaky network) keeps the current catalog.
-        guard let kinds = try? await Kubectl.discoverKinds(context: selectedContext) else { return }
+        guard let kinds = try? await Kubectl.discoverKinds(context: context) else { return }
+        // A catalog from the previous context must not land after a switch
+        // (it could wrongly bounce the selection back to Overview).
+        guard context == selectedContext else { return }
         kindCatalog = kinds
         // Selected kind vanished (context switch, CRD uninstalled) — bail out
         // so the list view isn't stuck fetching a kind the cluster lacks.
@@ -292,8 +307,9 @@ final class AppModel {
             lastNamespaceLoad = Date()
             Task { await self.loadNamespaces() }
         }
-        // The kind catalog changes rarely; a slower cadence is enough.
-        let catalogStale = lastCRDLoad.map { Date().timeIntervalSince($0) > 60 } ?? true
+        // The kind catalog changes rarely, and rediscovery fans out one
+        // kubectl per API group — keep it infrequent.
+        let catalogStale = lastCRDLoad.map { Date().timeIntervalSince($0) > 300 } ?? true
         if force || catalogStale {
             lastCRDLoad = Date()
             Task { await self.loadKindCatalog() }
@@ -334,6 +350,13 @@ final class AppModel {
             await refreshMetrics(kind: kind, generationSnapshot: generation)
             return
         }
+        // Overview has no watch and each load is nine subprocesses — don't
+        // re-run it on every quiet tick at aggressive intervals.
+        if quiet, selection == .overview,
+           Date().timeIntervalSince(lastOverviewAt) < 15 {
+            reloadNamespacesIfNeeded(force: false)
+            return
+        }
         generation += 1
         let gen = generation
         if !quiet { isLoading = true }
@@ -348,6 +371,7 @@ final class AppModel {
                 let data = try await OverviewService.load(context: selectedContext, namespace: selectedNamespace)
                 guard gen == generation else { return }
                 overview = data
+                lastOverviewAt = Date()
             case .resource(let kind):
                 let namespace = kind.isNamespaced ? selectedNamespace : nil
                 let fetched: [KubeObject]

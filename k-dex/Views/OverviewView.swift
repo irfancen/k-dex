@@ -12,13 +12,23 @@ struct OverviewView: View {
             } else if model.isLoading {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let error = model.lastError {
-                VStack {
-                    ErrorBanner(message: error) { model.requestRefresh() }
-                    Spacer()
-                }
+            } else if model.lastError != nil {
+                // Banner is in the safeAreaInset; leave the body empty.
+                ContentUnavailableView(
+                    "Overview Unavailable",
+                    systemImage: "exclamationmark.triangle",
+                    description: Text("The cluster could not be reached.")
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 Color.clear
+            }
+        }
+        // Rendered alongside data, not instead of it — a stale dashboard with
+        // a visible error beats a confident wrong one.
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if let error = model.lastError {
+                ErrorBanner(message: error) { model.requestRefresh() }
             }
         }
         .toolbar {

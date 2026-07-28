@@ -55,7 +55,11 @@ nonisolated struct OverviewData: Sendable {
 /// recent warning events, recent container restarts, and pods near their limits.
 nonisolated enum OverviewService {
     static func load(context: String, namespace: String?) async throws -> OverviewData {
-        async let podsFetch = safeList(.pods, context: context, namespace: namespace)
+        // The pods fetch propagates failure: with every list wrapped in try?
+        // the dashboard would render confident zeros when the cluster is
+        // unreachable or credentials expired. Secondary lists stay soft so
+        // partial RBAC still yields a dashboard.
+        async let podsFetch = Kubectl.list(kind: .pods, context: context, namespace: namespace)
         async let deploymentsFetch = safeList(.deployments, context: context, namespace: namespace)
         async let statefulSetsFetch = safeList(.statefulSets, context: context, namespace: namespace)
         async let daemonSetsFetch = safeList(.daemonSets, context: context, namespace: namespace)
@@ -65,7 +69,7 @@ nonisolated enum OverviewService {
         async let eventsFetch = safeList(.events, context: context, namespace: namespace)
         async let metricsFetch = try? Kubectl.podMetrics(context: context, namespace: namespace)
 
-        let pods = await podsFetch
+        let pods = try await podsFetch
         let metrics = await metricsFetch
 
         var summaries: [OverviewData.KindSummary] = []
