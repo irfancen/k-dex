@@ -1,7 +1,8 @@
 import AppKit
 
-// K-Dex app icon: macOS squircle, Kubernetes-blue gradient, a heavy "K"
-// beside three "index rows" — the K(ubernetes) (in)dex. Regenerate with:
+// K-Dex app icon: macOS squircle, deep navy→blue gradient, white hexagon
+// (the Kubernetes ecosystem shape, sans trademarked wheel) framing a heavy K.
+// Regenerate with:
 //   swift scripts/generate-icon.swift <output-1024.png>
 
 let size: CGFloat = 1024
@@ -18,39 +19,47 @@ squircle.addClip()
 
 let gradient = NSGradient(
     colors: [
-        NSColor(calibratedRed: 0.26, green: 0.47, blue: 0.94, alpha: 1),  // #4278F0
-        NSColor(calibratedRed: 0.10, green: 0.18, blue: 0.45, alpha: 1),  // #1A2E73
+        NSColor(calibratedRed: 0.23, green: 0.45, blue: 0.96, alpha: 1),  // bright blue
+        NSColor(calibratedRed: 0.07, green: 0.12, blue: 0.34, alpha: 1),  // deep navy
     ]
 )!
-gradient.draw(in: squircle, angle: -60)
+gradient.draw(in: squircle, angle: -65)
 
 // Subtle top sheen.
 let sheen = NSGradient(
-    colors: [NSColor(white: 1, alpha: 0.18), NSColor(white: 1, alpha: 0)]
+    colors: [NSColor(white: 1, alpha: 0.14), NSColor(white: 1, alpha: 0)]
 )!
 sheen.draw(in: NSRect(x: inset, y: size / 2, width: 824, height: 412), angle: -90)
 
-// The "K".
-let font = NSFont.systemFont(ofSize: 520, weight: .heavy)
+// Hexagon (pointy-top), centered.
+let center = NSPoint(x: size / 2, y: size / 2)
+let radius: CGFloat = 292
+let hexagon = NSBezierPath()
+for i in 0..<6 {
+    let angle = CGFloat(i) * .pi / 3 + .pi / 6
+    let point = NSPoint(
+        x: center.x + radius * cos(angle),
+        y: center.y + radius * sin(angle)
+    )
+    if i == 0 { hexagon.move(to: point) } else { hexagon.line(to: point) }
+}
+hexagon.close()
+hexagon.lineWidth = 34
+hexagon.lineJoinStyle = .round
+NSColor(white: 1, alpha: 0.92).setStroke()
+hexagon.stroke()
+
+// The K.
+let font = NSFont.systemFont(ofSize: 330, weight: .heavy)
 let text = NSAttributedString(string: "K", attributes: [
     .font: font,
     .foregroundColor: NSColor.white,
 ])
 let textSize = text.size()
-text.draw(at: NSPoint(x: 250, y: (size - textSize.height) / 2 + 10))
-
-// Three index rows (the "dex").
-let rowHeights: [(y: CGFloat, width: CGFloat, alpha: CGFloat)] = [
-    (620, 210, 0.95),
-    (482, 150, 0.65),
-    (344, 210, 0.40),
-]
-for row in rowHeights {
-    let rect = NSRect(x: 560, y: row.y, width: row.width, height: 62)
-    let bar = NSBezierPath(roundedRect: rect, xRadius: 31, yRadius: 31)
-    NSColor(white: 1, alpha: row.alpha).setFill()
-    bar.fill()
-}
+text.draw(at: NSPoint(
+    x: center.x - textSize.width / 2,
+    y: center.y - textSize.height / 2 + 4
+))
 
 image.unlockFocus()
 
