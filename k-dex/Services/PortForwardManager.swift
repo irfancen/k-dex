@@ -28,6 +28,9 @@ final class PortForwardManager {
 
     private(set) var forwards: [Forward] = []
     @ObservationIgnored private var processes: [UUID: Process] = [:]
+    /// Forwards the user asked to stop: their exit is expected, so the row is
+    /// removed instead of surfacing SIGTERM noise as a failure.
+    @ObservationIgnored private var stopping: Set<UUID> = []
 
     func start(context: String, namespace: String, targetType: String, targetName: String, localPort: Int, remotePort: Int) {
         let forward = Forward(
@@ -57,10 +60,16 @@ final class PortForwardManager {
                 },
                 onExit: { [weak self] code, stderr in
                     Task { @MainActor in
-                        guard let self, let index = self.forwards.firstIndex(where: { $0.id == id }) else { return }
+                        guard let self else { return }
                         self.processes[id] = nil
-                        if code != 0, !stderr.isEmpty {
-                            self.forwards[index].state = .failed(stderr)
+                        let wasStopping = self.stopping.remove(id) != nil
+                        guard let index = self.forwards.firstIndex(where: { $0.id == id }) else { return }
+                        if wasStopping {
+                            self.forwards.remove(at: index)
+                        } else if code != 0 {
+                            self.forwards[index].state = .failed(
+                                stderr.isEmpty ? "kubectl port-forward exited (code \(code))" : stderr
+                            )
                         } else {
                             self.forwards.remove(at: index)
                         }
@@ -75,6 +84,7 @@ final class PortForwardManager {
 
     func stop(id: UUID) {
         if let process = processes[id], process.isRunning {
+            stopping.insert(id)
             process.terminate() // removal happens in onExit
         } else {
             forwards.removeAll { $0.id == id }

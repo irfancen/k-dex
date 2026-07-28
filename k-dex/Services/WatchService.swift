@@ -15,6 +15,10 @@ final class KubectlWatcher {
 
     private(set) var spec: Spec?
     private var process: Process?
+    /// Monotonic launch token: a superseded watcher's delayed onExit must not
+    /// be attributed to its identically-specced replacement (which would
+    /// count phantom failures and eventually disable live watch).
+    private var runToken = 0
 
     var isRunning: Bool { process?.isRunning ?? false }
 
@@ -39,8 +43,9 @@ final class KubectlWatcher {
         }
 
         let framer = JSONStreamFramer()
+        let token = runToken
         do {
-            process = try ProcessRunner.streamData("kubectl", args, onData: { chunk in
+            process = try ProcessRunner.streamData("kubectl", args, onData: { [weak self] chunk in
                 let documents = framer.append(chunk)
                 guard !documents.isEmpty else { return }
                 var upserts: [KubeObject] = []
@@ -52,9 +57,15 @@ final class KubectlWatcher {
                 guard !upserts.isEmpty || !deletes.isEmpty else { return }
                 let up = upserts
                 let del = deletes
-                Task { @MainActor in onEvents(up, del) }
-            }, onExit: { _, _ in
-                Task { @MainActor in onExit() }
+                Task { @MainActor in
+                    guard let self, self.runToken == token else { return }
+                    onEvents(up, del)
+                }
+            }, onExit: { [weak self] _, _ in
+                Task { @MainActor in
+                    guard let self, self.runToken == token else { return }
+                    onExit()
+                }
             })
         } catch {
             process = nil
@@ -64,6 +75,7 @@ final class KubectlWatcher {
     }
 
     func stop() {
+        runToken &+= 1
         spec = nil
         if let process, process.isRunning { process.terminate() }
         process = nil

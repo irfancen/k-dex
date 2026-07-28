@@ -16,6 +16,10 @@ final class LogStreamer {
 
     @ObservationIgnored private var process: Process?
     @ObservationIgnored private var nextID = 0
+    /// Monotonic launch token: callbacks from a superseded process (its
+    /// delayed onExit after a restart) are ignored instead of clobbering the
+    /// live stream's state.
+    @ObservationIgnored private var runToken = 0
 
     private static let maxLines = 6000
 
@@ -42,14 +46,21 @@ final class LogStreamer {
         if timestamps { args.append("--timestamps") }
         if follow { args.append("--follow") }
 
+        let token = runToken
         do {
             process = try ProcessRunner.stream(
                 "kubectl", args,
                 onLines: { [weak self] batch in
-                    Task { @MainActor in self?.append(batch) }
+                    Task { @MainActor in
+                        guard let self, self.runToken == token else { return }
+                        self.append(batch)
+                    }
                 },
                 onExit: { [weak self] code, stderr in
-                    Task { @MainActor in self?.finished(code: code, stderr: stderr) }
+                    Task { @MainActor in
+                        guard let self, self.runToken == token else { return }
+                        self.finished(code: code, stderr: stderr)
+                    }
                 }
             )
             isStreaming = true
@@ -59,6 +70,7 @@ final class LogStreamer {
     }
 
     func stop() {
+        runToken &+= 1
         if let process, process.isRunning { process.terminate() }
         process = nil
         isStreaming = false

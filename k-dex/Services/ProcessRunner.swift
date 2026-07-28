@@ -31,6 +31,36 @@ nonisolated enum SettingsKeys {
     static let logTail = "logTail"
 }
 
+/// Tracks long-lived child processes (log follows, watches, port forwards)
+/// so app termination can reap them even when their owners — view-scoped
+/// streamers — are no longer reachable. Weak references: exited processes
+/// fall out on their own.
+nonisolated final class ProcessReaper: @unchecked Sendable {
+    static let shared = ProcessReaper()
+
+    private struct Entry { weak var process: Process? }
+
+    private let lock = NSLock()
+    private var entries: [Entry] = []
+
+    func register(_ process: Process) {
+        lock.lock()
+        entries.removeAll { $0.process == nil }
+        entries.append(Entry(process: process))
+        lock.unlock()
+    }
+
+    func terminateAll() {
+        lock.lock()
+        let processes = entries.compactMap(\.process)
+        entries.removeAll()
+        lock.unlock()
+        for process in processes where process.isRunning {
+            process.terminate()
+        }
+    }
+}
+
 /// Runs external tools (kubectl, gunzip) with a PATH that covers the usual
 /// install locations, since GUI apps don't inherit the user's shell PATH.
 nonisolated enum ProcessRunner {
@@ -48,6 +78,52 @@ nonisolated enum ProcessRunner {
             lock.lock()
             defer { lock.unlock() }
             return storage
+        }
+    }
+
+    /// Once-only exit coordinator for streamed processes: `onExit` fires only
+    /// after the process has exited AND both pipes have drained to EOF, so
+    /// output callbacks are complete, in order, and stderr is never truncated.
+    private final class StreamFinisher: @unchecked Sendable {
+        private let lock = NSLock()
+        private var exitCode: Int32?
+        private var stdoutDone = false
+        private var stderrDone = false
+        private var fired = false
+        private let errBox: OutputBox
+        private let onExit: @Sendable (Int32, String) -> Void
+
+        init(errBox: OutputBox, onExit: @escaping @Sendable (Int32, String) -> Void) {
+            self.errBox = errBox
+            self.onExit = onExit
+        }
+
+        func processExited(_ code: Int32) {
+            lock.lock(); exitCode = code; lock.unlock()
+            tryFire()
+        }
+
+        func stdoutEOF() {
+            lock.lock(); stdoutDone = true; lock.unlock()
+            tryFire()
+        }
+
+        func stderrEOF() {
+            lock.lock(); stderrDone = true; lock.unlock()
+            tryFire()
+        }
+
+        private func tryFire() {
+            lock.lock()
+            guard !fired, let code = exitCode, stdoutDone, stderrDone else {
+                lock.unlock()
+                return
+            }
+            fired = true
+            lock.unlock()
+            let stderr = String(decoding: errBox.data, as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            onExit(code, stderr)
         }
     }
 
@@ -195,11 +271,17 @@ nonisolated enum ProcessRunner {
 
         let lineBuffer = LineBuffer()
         let errBox = OutputBox()
+        let finisher = StreamFinisher(errBox: errBox, onExit: onExit)
 
+        // Teardown is driven by each pipe's own EOF (delivered on the
+        // handler's queue, in order after all data), never by racing a
+        // readToEnd against a handler on another queue.
         outPipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
             if data.isEmpty {
                 handle.readabilityHandler = nil
+                if let tail = lineBuffer.flushRemainder() { onLines([tail]) }
+                finisher.stdoutEOF()
                 return
             }
             let lines = lineBuffer.appendAndExtractLines(data)
@@ -209,28 +291,18 @@ nonisolated enum ProcessRunner {
             let data = handle.availableData
             if data.isEmpty {
                 handle.readabilityHandler = nil
+                finisher.stderrEOF()
                 return
             }
             errBox.append(data)
         }
 
         process.terminationHandler = { finished in
-            // Give the readability handlers a moment to drain, then flush the tail.
-            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.1) {
-                outPipe.fileHandleForReading.readabilityHandler = nil
-                errPipe.fileHandleForReading.readabilityHandler = nil
-                if let rest = try? outPipe.fileHandleForReading.readToEnd(), !rest.isEmpty {
-                    let lines = lineBuffer.appendAndExtractLines(rest)
-                    if !lines.isEmpty { onLines(lines) }
-                }
-                if let tail = lineBuffer.flushRemainder() { onLines([tail]) }
-                let stderrText = String(decoding: errBox.data, as: UTF8.self)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                onExit(finished.terminationStatus, stderrText)
-            }
+            finisher.processExited(finished.terminationStatus)
         }
 
         try process.run()
+        ProcessReaper.shared.register(process)
         return process
     }
 
@@ -258,11 +330,13 @@ nonisolated enum ProcessRunner {
         process.standardInput = FileHandle.nullDevice
 
         let errBox = OutputBox()
+        let finisher = StreamFinisher(errBox: errBox, onExit: onExit)
 
         outPipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
             if data.isEmpty {
                 handle.readabilityHandler = nil
+                finisher.stdoutEOF()
                 return
             }
             onData(data)
@@ -271,25 +345,18 @@ nonisolated enum ProcessRunner {
             let data = handle.availableData
             if data.isEmpty {
                 handle.readabilityHandler = nil
+                finisher.stderrEOF()
                 return
             }
             errBox.append(data)
         }
 
         process.terminationHandler = { finished in
-            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.1) {
-                outPipe.fileHandleForReading.readabilityHandler = nil
-                errPipe.fileHandleForReading.readabilityHandler = nil
-                if let rest = try? outPipe.fileHandleForReading.readToEnd(), !rest.isEmpty {
-                    onData(rest)
-                }
-                let stderrText = String(decoding: errBox.data, as: UTF8.self)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                onExit(finished.terminationStatus, stderrText)
-            }
+            finisher.processExited(finished.terminationStatus)
         }
 
         try process.run()
+        ProcessReaper.shared.register(process)
         return process
     }
 

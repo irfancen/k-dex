@@ -13,6 +13,11 @@ nonisolated final class JSONStreamFramer: @unchecked Sendable {
     private var escaped = false
     private var docStart: Int?
 
+    /// A "document" larger than this is stream corruption (e.g. a stray `{`
+    /// from a kubectl wrapper script opened a phantom document that will
+    /// never close). Reset and resync rather than accumulating forever.
+    private static let maxBufferBytes = 8 * 1024 * 1024
+
     /// Appends a chunk and returns any documents it completed.
     func append(_ data: Data) -> [Data] {
         lock.lock()
@@ -33,7 +38,10 @@ nonisolated final class JSONStreamFramer: @unchecked Sendable {
             } else {
                 switch byte {
                 case UInt8(ascii: "\""):
-                    if docStart != nil { inString = true }
+                    // Quotes toggle string state even between documents, so
+                    // braces inside noise like `note: "see {here}"` don't
+                    // open phantom documents.
+                    inString = true
                 case UInt8(ascii: "{"):
                     if docStart == nil { docStart = scanned }
                     depth += 1
@@ -58,6 +66,17 @@ nonisolated final class JSONStreamFramer: @unchecked Sendable {
             buffer.removeFirst(keep)
             scanned -= keep
             if docStart != nil { docStart = 0 }
+        }
+
+        // Corruption backstop: drop the runaway buffer and resync at the
+        // next document boundary.
+        if buffer.count > Self.maxBufferBytes {
+            buffer.removeAll(keepingCapacity: false)
+            scanned = 0
+            depth = 0
+            inString = false
+            escaped = false
+            docStart = nil
         }
         return documents
     }
