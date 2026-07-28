@@ -16,6 +16,7 @@ struct LogView: View {
     @State private var follow = true
     @State private var showTimestamps = true
     @State private var wrapLines = true
+    @State private var showPrevious = false
     @State private var filter = ""
     @State private var showExpanded = false
     @AppStorage(SettingsKeys.logTail) private var tail = 500
@@ -56,7 +57,11 @@ struct LogView: View {
             VStack(spacing: 0) {
                 controls
                 Divider()
-                LogTextView(lines: visibleLines, follow: follow, wrap: wrapLines)
+                if let crash = crashInfo {
+                    crashBanner(crash)
+                    Divider()
+                }
+                LogTextView(lines: visibleLines, follow: follow && !showPrevious, wrap: wrapLines)
                     .overlay {
                         if streamer.lines.isEmpty && streamer.isStreaming {
                             Text("Waiting for logs…")
@@ -74,7 +79,7 @@ struct LogView: View {
                         .padding(6)
                 }
             }
-            .task(id: "\(object.id)/\(container)/\(follow)/\(showTimestamps)") {
+            .task(id: "\(object.id)/\(container)/\(follow)/\(showTimestamps)/\(showPrevious)") {
                 start()
             }
             .onDisappear {
@@ -97,10 +102,72 @@ struct LogView: View {
             context: model.selectedContext,
             namespace: object.namespace,
             target: target,
-            follow: follow,
+            follow: follow && !showPrevious,
             tail: max(tail, 10),
-            timestamps: showTimestamps
+            timestamps: showTimestamps,
+            previous: showPrevious
         )
+    }
+
+    // MARK: Crash awareness
+
+    private struct CrashInfo {
+        let container: String
+        let reason: String
+        let exitCode: Int?
+        let at: Date?
+        let restarts: Int
+    }
+
+    /// Last termination of the selected container, so crashed pods offer
+    /// their previous instance's logs one click away.
+    private var crashInfo: CrashInfo? {
+        guard kind == .pods else { return nil }
+        let statuses = object.raw["status"]["containerStatuses"].array
+            + object.raw["status"]["initContainerStatuses"].array
+        guard let status = statuses.first(where: { $0["name"].stringValue == container }) ?? statuses.first else {
+            return nil
+        }
+        let restarts = status["restartCount"].int ?? 0
+        let terminated = status["lastState"]["terminated"]
+        let reason = terminated["reason"].string
+        // A completed init container isn't a crash; require restarts or a
+        // non-Completed termination.
+        guard restarts > 0 || (reason != nil && reason != "Completed") else { return nil }
+        return CrashInfo(
+            container: status["name"].stringValue,
+            reason: reason ?? "Restarted",
+            exitCode: terminated["exitCode"].int,
+            at: Fmt.parseDate(terminated["finishedAt"].string),
+            restarts: restarts
+        )
+    }
+
+    private func crashBanner(_ crash: CrashInfo) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            Text(crashText(crash))
+                .font(.caption)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer()
+            Button(showPrevious ? "Show Current" : "Show Crash Logs") {
+                showPrevious.toggle()
+            }
+            .controlSize(.small)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(.orange.opacity(0.1))
+    }
+
+    private func crashText(_ crash: CrashInfo) -> String {
+        var parts = "\(crash.container) crashed — \(crash.reason)"
+        if let code = crash.exitCode { parts += " (exit \(code))" }
+        if let at = crash.at { parts += ", \(Fmt.age(at)) ago" }
+        if crash.restarts > 0 { parts += " · \(crash.restarts) restart\(crash.restarts == 1 ? "" : "s")" }
+        return parts
     }
 
     private var controls: some View {
@@ -114,12 +181,16 @@ struct LogView: View {
             }
             Toggle("Follow", isOn: $follow)
                 .toggleStyle(.checkbox)
+                .disabled(showPrevious)
             Toggle("Time", isOn: $showTimestamps)
                 .toggleStyle(.checkbox)
                 .help("Show timestamps")
             Toggle("Wrap", isOn: $wrapLines)
                 .toggleStyle(.checkbox)
                 .help("Wrap long lines")
+            Toggle("Previous", isOn: $showPrevious)
+                .toggleStyle(.checkbox)
+                .help("Logs from the previous (crashed) container run")
             TextField("Filter", text: $filter, prompt: Text("Filter"))
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: 150)

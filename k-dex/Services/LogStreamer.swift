@@ -29,7 +29,15 @@ final class LogStreamer {
         case selector(String)
     }
 
-    func start(context: String, namespace: String, target: Target, follow: Bool, tail: Int, timestamps: Bool) {
+    func start(
+        context: String,
+        namespace: String,
+        target: Target,
+        follow: Bool,
+        tail: Int,
+        timestamps: Bool,
+        previous: Bool = false
+    ) {
         stop()
         lines = []
         statusMessage = nil
@@ -44,7 +52,12 @@ final class LogStreamer {
         }
         args += ["-n", namespace, "--context", context, "--tail", String(tail)]
         if timestamps { args.append("--timestamps") }
-        if follow { args.append("--follow") }
+        if previous {
+            // The crashed (previous) container instance; static, so no follow.
+            args.append("--previous")
+        } else if follow {
+            args.append("--follow")
+        }
 
         let token = runToken
         do {
