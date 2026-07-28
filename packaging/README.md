@@ -33,11 +33,14 @@
 1. Bump `MARKETING_VERSION` (and `CURRENT_PROJECT_VERSION`) in the project.
 2. `scripts/release.sh` — builds, signs, notarizes, staples; prints the DMG
    sha256.
-3. Tag and publish:
+3. Tag and publish — the appcast **must** ship as a release asset alongside
+   the DMG (the app's feed URL is
+   `releases/latest/download/appcast.xml`):
 
    ```sh
    git tag v<version> && git push --tags
-   gh release create v<version> build/K-Dex-<version>.dmg --title "K-Dex <version>"
+   gh release create v<version> build/K-Dex-<version>.dmg build/appcast.xml \
+     --title "K-Dex <version>"
    ```
 
 4. Update the cask in the tap: `version` + `sha256`.
@@ -48,5 +51,8 @@
   falling back to `kubectl` on PATH / Homebrew). The app prefers the bundled
   copy; the Settings override still wins.
 - The app icon is generated: `swift scripts/generate-icon.swift <out.png>`.
-- Sparkle auto-updates are planned but not wired yet (needs EdDSA keys and
-  an appcast fed from GitHub Releases).
+- Sparkle: the EdDSA private key lives in the login keychain ("Private key
+  for signing Sparkle updates", created 2026-07-28); the public key is in
+  the root Info.plist. `release.sh` signs the appcast via `generate_appcast`
+  from the Sparkle SPM artifacts in DerivedData. Losing the private key
+  orphans existing installs — back it up (`generate_keys -x <file>`).

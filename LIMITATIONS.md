@@ -12,7 +12,7 @@ that remain — and why each one is deliberately not being fixed right now.
 | Overview & Helm still poll | Deliberate trade-off | Dashboards feel stale in practice |
 | Metrics lag by 15–60 s | Upstream (metrics-server) | A richer telemetry source is added |
 | Watch events carry managedFields | Upstream (kubectl) | Large clusters make events heavy |
-| kubectl must be installed | Philosophy, not a bug | Never — it *is* the architecture |
+| Everything runs through kubectl | Philosophy, not a bug | Never — it *is* the architecture |
 
 ## No Mac App Store distribution (App Sandbox stays off)
 
@@ -90,12 +90,13 @@ it's accepted.
 client-side before decoding — extra code for an overhead that hasn't shown up
 in profiling. Revisit if high-churn clusters make event processing visible.
 
-## kubectl must be installed
+## Everything runs through kubectl
 
 Not a bug to fix — it's the load-bearing decision. The binary *is* the auth
-layer, the TLS stack, and the compatibility guarantee; removing the
-dependency means the embedded-client approach and its auth burden (see the
-pros/cons section of the architecture doc). The app mitigates the sharp
-edges instead: PATH resolution for GUI apps, a configurable binary path in
-Settings, and a version check at boot that warns before old kubectl breaks
-watch or metrics quietly.
+layer, the TLS stack, and the compatibility guarantee; replacing it means the
+embedded-client approach and its auth burden (see the pros/cons section of
+the architecture doc). Shipped builds bundle kubectl inside the app, so users
+don't need it installed; the sharp edges are mitigated rather than removed:
+a Settings override for using your own binary, PATH resolution for GUI apps
+when falling back, and a version check at boot that warns before an old
+kubectl breaks watch or metrics quietly.

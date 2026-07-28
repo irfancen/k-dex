@@ -160,7 +160,7 @@ The `helm` CLI is **not** required. Helm 3 stores each release revision as a
 Secret of type `helm.sh/release.v1`. K-Dex lists those secrets
 (`-l owner=helm`) and unwraps the payload: base64 (Kubernetes secret data) →
 base64 again (Helm's own encoding) → gzip (decompressed by piping through
-`/usr/bin/gunzip`) → JSON containing the chart metadata, computed values,
+the Compression framework, size-bounded) → JSON containing the chart metadata, computed values,
 rendered manifest, and notes. Revision history is grouped from the per-version
 secrets.
 
@@ -200,7 +200,7 @@ code — details may have evolved.
 | Auth | Delegated to kubectl on every call | Also delegated to kubectl (the proxy holds the authenticated session) |
 | Multi-cluster | One context at a time | Multiple clusters connected simultaneously, mergeable into one view |
 | Helm | Decodes release secrets itself, no helm CLI | Same trick — helm CLI not required |
-| Requires kubectl installed | Yes | Yes |
+| Requires kubectl installed | No — bundled in the app (Settings can point at your own) | Yes |
 
 The interesting part is that both apps made the *same* foundational choice —
 "never reimplement Kubernetes auth, let kubectl own it" — but cashed it in at
