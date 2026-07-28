@@ -4,3 +4,7 @@ xcuserdata/
 DerivedData/
 build/
 .build/
+
+# Private planning docs
+DISTRIBUTION-PLAN.md
+CODE-REVIEW.md
