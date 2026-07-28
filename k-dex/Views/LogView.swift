@@ -61,7 +61,12 @@ struct LogView: View {
                     crashBanner(crash)
                     Divider()
                 }
-                LogTextView(lines: visibleLines, follow: follow && !showPrevious, wrap: wrapLines)
+                LogTextView(
+                    lines: visibleLines,
+                    follow: follow && !showPrevious,
+                    wrap: wrapLines,
+                    onInteractiveScrollAway: { follow = false }
+                )
                     .overlay {
                         if streamer.lines.isEmpty && streamer.isStreaming {
                             Text("Waiting for logs…")
@@ -79,7 +84,10 @@ struct LogView: View {
                         .padding(6)
                 }
             }
-            .task(id: "\(object.id)/\(container)/\(follow)/\(showTimestamps)/\(showPrevious)") {
+            // `follow` is deliberately absent: it only controls auto-scroll
+            // pinning now, so toggling it (or scrolling up, which unchecks
+            // it) must not restart the stream and lose the reading position.
+            .task(id: "\(object.id)/\(container)/\(showTimestamps)/\(showPrevious)") {
                 start()
             }
             .onDisappear {
@@ -102,7 +110,7 @@ struct LogView: View {
             context: model.selectedContext,
             namespace: object.namespace,
             target: target,
-            follow: follow && !showPrevious,
+            follow: !showPrevious, // always stream; the toggle only pins the scroll
             tail: max(tail, 10),
             timestamps: showTimestamps,
             previous: showPrevious
@@ -182,6 +190,7 @@ struct LogView: View {
             Toggle("Follow", isOn: $follow)
                 .toggleStyle(.checkbox)
                 .disabled(showPrevious)
+                .help("Pin to the newest lines (scrolling up unpins)")
             Toggle("Time", isOn: $showTimestamps)
                 .toggleStyle(.checkbox)
                 .help("Show timestamps")
@@ -262,6 +271,7 @@ private struct LogTextView: NSViewRepresentable {
     let lines: [LogStreamer.Line]
     let follow: Bool
     let wrap: Bool
+    var onInteractiveScrollAway: (() -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -278,10 +288,12 @@ private struct LogTextView: NSViewRepresentable {
         textView.textContainerInset = NSSize(width: 6, height: 6)
         context.coordinator.textView = textView
         context.coordinator.setWrapping(wrap)
+        context.coordinator.observeUserScrolls(of: scrollView)
         return scrollView
     }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
+        context.coordinator.onScrollAway = onInteractiveScrollAway
         context.coordinator.setWrapping(wrap)
         context.coordinator.render(lines: lines, follow: follow)
     }
@@ -295,10 +307,48 @@ private struct LogTextView: NSViewRepresentable {
         ]
 
         weak var textView: NSTextView?
+        var onScrollAway: (() -> Void)?
         private var firstID: Int?
         private var lastID: Int?
         private var renderedCount = 0
         private var isWrapping: Bool?
+        private var isFollowing = false
+        private var scrollObserver: ObserverToken?
+
+        /// Removes its notification observer when released — sidesteps
+        /// Swift 6's ban on touching non-Sendable state in deinit.
+        private final class ObserverToken: @unchecked Sendable {
+            // nonisolated(unsafe): deinit runs once and removeObserver is
+            // thread-safe; Swift 6 can't prove that for a non-Sendable token.
+            private nonisolated(unsafe) let token: NSObjectProtocol
+            init(_ token: NSObjectProtocol) { self.token = token }
+            deinit { NotificationCenter.default.removeObserver(token) }
+        }
+
+        /// didLiveScroll fires only for user-initiated scrolling (wheel,
+        /// trackpad, scroller drag) — never for our programmatic pinning —
+        /// so it's the reliable "the user wants to read" signal.
+        func observeUserScrolls(of scrollView: NSScrollView) {
+            scrollObserver = ObserverToken(NotificationCenter.default.addObserver(
+                forName: NSScrollView.didLiveScrollNotification,
+                object: scrollView,
+                queue: .main
+            ) { [weak self, weak scrollView] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let scrollView else { return }
+                    self.userScrolled(scrollView)
+                }
+            })
+        }
+
+        private func userScrolled(_ scrollView: NSScrollView) {
+            guard isFollowing, let textView else { return }
+            let distanceFromBottom = textView.frame.height - scrollView.contentView.bounds.maxY
+            if distanceFromBottom > 40 {
+                isFollowing = false // render() resyncs from SwiftUI state
+                onScrollAway?()
+            }
+        }
 
         func setWrapping(_ wrap: Bool) {
             guard wrap != isWrapping, let textView, let scrollView = textView.enclosingScrollView else { return }
@@ -326,6 +376,7 @@ private struct LogTextView: NSViewRepresentable {
         }
 
         func render(lines: [LogStreamer.Line], follow: Bool) {
+            isFollowing = follow
             guard let textView, let storage = textView.textStorage else { return }
 
             let isAppend = renderedCount > 0
