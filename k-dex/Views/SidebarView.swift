@@ -3,8 +3,12 @@ import SwiftUI
 struct SidebarView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
-    /// Comma-separated ids of collapsed sidebar sections.
+    /// Comma-separated ids of collapsed sidebar sections (for sections that
+    /// default to expanded).
     @AppStorage("sidebar-collapsed") private var collapsedSections = ""
+    /// Comma-separated ids of expanded sections (for sections that default to
+    /// collapsed, like Other).
+    @AppStorage("sidebar-expanded") private var expandedSections = ""
     /// Bumped after a drag-reorder so the list re-reads the stored order.
     @State private var orderVersion = 0
 
@@ -246,13 +250,26 @@ struct SidebarView: View {
         orderVersion += 1
     }
 
+    // Reads go through the @AppStorage properties so external writes
+    // (RootView's click-to-toggle via SidebarSectionStore) re-render us.
     private func expandedBinding(_ id: String) -> Binding<Bool> {
         Binding(
-            get: { !collapsedSections.split(separator: ",").map(String.init).contains(id) },
+            get: {
+                if SidebarSectionStore.collapsedByDefault(id) {
+                    return expandedSections.split(separator: ",").map(String.init).contains(id)
+                }
+                return !collapsedSections.split(separator: ",").map(String.init).contains(id)
+            },
             set: { expanded in
-                var collapsed = Set(collapsedSections.split(separator: ",").map(String.init))
-                if expanded { collapsed.remove(id) } else { collapsed.insert(id) }
-                collapsedSections = collapsed.sorted().joined(separator: ",")
+                if SidebarSectionStore.collapsedByDefault(id) {
+                    var set = Set(expandedSections.split(separator: ",").map(String.init))
+                    if expanded { set.insert(id) } else { set.remove(id) }
+                    expandedSections = set.sorted().joined(separator: ",")
+                } else {
+                    var set = Set(collapsedSections.split(separator: ",").map(String.init))
+                    if expanded { set.remove(id) } else { set.insert(id) }
+                    collapsedSections = set.sorted().joined(separator: ",")
+                }
             }
         )
     }
@@ -328,20 +345,30 @@ nonisolated enum KindVisibilityStore {
 }
 
 /// Sidebar section collapse state, shared so RootView can toggle it when a
-/// category row is clicked (selected).
+/// category row is clicked (selected). Sections default to expanded except
+/// the ones listed in `collapsedByDefault`, whose user-expansion is stored
+/// in a separate override key.
 nonisolated enum SidebarSectionStore {
+    private static let collapsedKey = "sidebar-collapsed"
+    private static let expandedKey = "sidebar-expanded"
+
+    /// Sections that start collapsed until the user opens them.
+    static func collapsedByDefault(_ id: String) -> Bool {
+        id == "other"
+    }
+
     static func toggle(_ id: String) {
-        let key = "sidebar-collapsed"
-        var collapsed = Set(
+        let key = collapsedByDefault(id) ? expandedKey : collapsedKey
+        var set = Set(
             (UserDefaults.standard.string(forKey: key) ?? "")
                 .split(separator: ",")
                 .map(String.init)
         )
-        if collapsed.contains(id) {
-            collapsed.remove(id)
+        if set.contains(id) {
+            set.remove(id)
         } else {
-            collapsed.insert(id)
+            set.insert(id)
         }
-        UserDefaults.standard.set(collapsed.sorted().joined(separator: ","), forKey: key)
+        UserDefaults.standard.set(set.sorted().joined(separator: ","), forKey: key)
     }
 }
