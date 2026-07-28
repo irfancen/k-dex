@@ -502,6 +502,52 @@ nonisolated extension ResourceKind {
                 ColumnSpec("Handler", ideal: 140) { obj, _ in obj.raw["handler"].stringValue },
             ])
 
+        // MARK: Deprecated / legacy core kinds — live in Other, visible by
+        // default (they're real cluster objects, just superseded ones). Keyed
+        // by discovered id; they are not part of the builtin seed.
+
+        t["endpoints"] = KindEnrichment(
+            displayName: "Endpoints", icon: "smallcircle.filled.circle", category: .other,
+            columns: [
+                ColumnSpec("Endpoints", ideal: 240) { obj, _ in
+                    var entries: [String] = []
+                    for subset in obj.raw["subsets"].array {
+                        let port = subset["ports"].array.first?["port"].displayString
+                        for address in subset["addresses"].array {
+                            let ip = address["ip"].stringValue
+                            entries.append(port.map { "\(ip):\($0)" } ?? ip)
+                        }
+                    }
+                    guard !entries.isEmpty else { return "<none>" }
+                    let shown = entries.prefix(3).joined(separator: ", ")
+                    return entries.count > 3 ? "\(shown) +\(entries.count - 3) more" : shown
+                },
+            ])
+
+        t["replicationcontrollers"] = KindEnrichment(
+            displayName: "Replication Controllers", icon: "rectangle.on.rectangle", category: .other,
+            columns: [
+                ColumnSpec("Desired", ideal: 55, max: 75) { obj, _ in String(obj.raw["spec"]["replicas"].int ?? 0) },
+                ColumnSpec("Current", ideal: 55, max: 75) { obj, _ in String(obj.raw["status"]["replicas"].int ?? 0) },
+                ColumnSpec("Ready", ideal: 55, max: 75) { obj, _ in String(obj.raw["status"]["readyReplicas"].int ?? 0) },
+            ])
+
+        t["podtemplates"] = KindEnrichment(
+            displayName: "Pod Templates", icon: "doc.on.doc", category: .other)
+
+        t["componentstatuses"] = KindEnrichment(
+            displayName: "Component Statuses", icon: "waveform.path.ecg", category: .other,
+            columns: [
+                ColumnSpec("Status", ideal: 90, max: 130, style: .badge) { obj, _ in
+                    let healthy = obj.raw["conditions"].array.first { $0["type"].stringValue == "Healthy" }
+                    let ok = healthy?["status"].stringValue == "True"
+                    return Cell(text: ok ? "Healthy" : "Unhealthy", tone: ok ? .ok : .bad)
+                },
+                ColumnSpec("Message", ideal: 220) { obj, _ in
+                    obj.raw["conditions"].array.first { $0["type"].stringValue == "Healthy" }?["message"].stringValue ?? ""
+                },
+            ])
+
         // Bake the trailing Age column in once, so `columns` is a plain
         // stored-array lookup at render/sort time.
         for (id, var enrichment) in t {

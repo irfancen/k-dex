@@ -64,12 +64,23 @@ struct SidebarView: View {
 
     private static let sectionOrderKey = "sidebar-section-order-v3"
 
-    /// Cluster first by default (Aptakube-style), then helm and the rest.
-    private var defaultSectionOrder: [String] {
-        ["cluster", "helm", "workloads", "network", "config", "storage", "access", "crd", "other"]
+    /// One section token per CRD API group ("crd:cert-manager.io"), so each
+    /// installed operator gets its own sidebar section, Aptakube-style.
+    private var crdGroupTokens: [String] {
+        Set(model.kindCatalog.filter(\.isCustom).map(\.group))
+            .sorted()
+            .map { "crd:\($0)" }
     }
 
-    /// Section tokens (category raw values + "helm") in the user's order.
+    /// Cluster first by default (Aptakube-style), then helm and the rest;
+    /// CRD group sections slot in before Other.
+    private var defaultSectionOrder: [String] {
+        ["cluster", "helm", "workloads", "network", "config", "storage", "access"]
+            + crdGroupTokens + ["other"]
+    }
+
+    /// Section tokens (category raw values, "helm", "crd:<group>") in the
+    /// user's order. Tokens for uninstalled CRD groups prune automatically.
     private var sectionTokens: [String] {
         let defaults = defaultSectionOrder
         guard let csv = UserDefaults.standard.string(forKey: Self.sectionOrderKey), !csv.isEmpty else {
@@ -77,6 +88,21 @@ struct SidebarView: View {
         }
         let stored = csv.split(separator: ",").map(String.init).filter { defaults.contains($0) }
         return stored + defaults.filter { !stored.contains($0) }
+    }
+
+    private func sectionTitle(for token: String) -> String {
+        if token.hasPrefix("crd:") { return String(token.dropFirst(4)) }
+        return ResourceCategory(rawValue: token)?.title ?? token
+    }
+
+    /// The kinds a section token owns (unordered, hidden ones included).
+    private func kinds(forToken token: String) -> [ResourceKind] {
+        if token.hasPrefix("crd:") {
+            let group = String(token.dropFirst(4))
+            return model.kindCatalog.filter { $0.isCustom && $0.group == group }
+        }
+        guard let category = ResourceCategory(rawValue: token), category != .crd else { return [] }
+        return model.kinds(in: category)
     }
 
     /// A draggable, collapsible category group. Rendered as an outline row
@@ -90,12 +116,11 @@ struct SidebarView: View {
             } label: {
                 groupLabel("Helm", token: token)
             }
-        } else if let category = ResourceCategory(rawValue: token) {
-            // Sections render only when the catalog has kinds for them — the
-            // Custom Resources and Other sections vanish on clusters without.
-            if !orderedKinds(in: category).isEmpty {
-                DisclosureGroup(isExpanded: expandedBinding(category.rawValue)) {
-                    ForEach(visibleKinds(in: category)) { kind in
+        } else {
+            // Sections render only when the catalog has kinds for them.
+            if !orderedKinds(forToken: token).isEmpty {
+                DisclosureGroup(isExpanded: expandedBinding(token)) {
+                    ForEach(visibleKinds(forToken: token)) { kind in
                         itemLabel(kind.displayName, icon: kind.icon)
                             .tag(SidebarItem.resource(kind))
                             .help(kind.cliName)
@@ -104,10 +129,10 @@ struct SidebarView: View {
                             }
                     }
                     .onMove { source, destination in
-                        moveKinds(in: category, from: source, to: destination)
+                        moveKinds(token: token, from: source, to: destination)
                     }
                 } label: {
-                    groupLabel(category.title, token: token)
+                    groupLabel(sectionTitle(for: token), token: token)
                 }
             }
         }
@@ -153,14 +178,13 @@ struct SidebarView: View {
 
     // MARK: Per-item visibility
 
-    private func visibleKinds(in category: ResourceCategory) -> [ResourceKind] {
-        orderedKinds(in: category).filter { KindVisibilityStore.isVisible($0) }
+    private func visibleKinds(forToken token: String) -> [ResourceKind] {
+        orderedKinds(forToken: token).filter { KindVisibilityStore.isVisible($0) }
     }
 
     /// All kinds a section's "Visible Items" menu offers, hidden ones included.
     private func menuKinds(for token: String) -> [ResourceKind] {
-        guard let category = ResourceCategory(rawValue: token) else { return [] }
-        return orderedKinds(in: category)
+        orderedKinds(forToken: token)
     }
 
     private func visibilityBinding(_ kind: ResourceKind) -> Binding<Bool> {
@@ -194,30 +218,30 @@ struct SidebarView: View {
 
     // MARK: Reorderable items
 
-    private func orderKey(_ category: ResourceCategory) -> String {
-        "sidebar-order-\(category.rawValue)"
+    private func orderKey(_ token: String) -> String {
+        "sidebar-order-\(token)"
     }
 
-    /// Kinds of a category in the user's stored order; new kinds append at the end.
-    private func orderedKinds(in category: ResourceCategory) -> [ResourceKind] {
-        let defaults = model.kinds(in: category)
-        guard let csv = UserDefaults.standard.string(forKey: orderKey(category)), !csv.isEmpty else {
+    /// Kinds of a section in the user's stored order; new kinds append at the end.
+    private func orderedKinds(forToken token: String) -> [ResourceKind] {
+        let defaults = kinds(forToken: token)
+        guard let csv = UserDefaults.standard.string(forKey: orderKey(token)), !csv.isEmpty else {
             return defaults
         }
         let stored = csv.split(separator: ",")
-            .compactMap { token in defaults.first { $0.id == token } }
+            .compactMap { id in defaults.first { $0.id == id } }
         return stored + defaults.filter { !stored.contains($0) }
     }
 
-    private func moveKinds(in category: ResourceCategory, from source: IndexSet, to destination: Int) {
+    private func moveKinds(token: String, from source: IndexSet, to destination: Int) {
         // Drag indices refer to the *visible* rows; hidden kinds tag along at
         // the end so they reappear in a sane spot when re-enabled.
-        var visible = visibleKinds(in: category)
-        let hidden = orderedKinds(in: category).filter { !KindVisibilityStore.isVisible($0) }
+        var visible = visibleKinds(forToken: token)
+        let hidden = orderedKinds(forToken: token).filter { !KindVisibilityStore.isVisible($0) }
         visible.move(fromOffsets: source, toOffset: destination)
         UserDefaults.standard.set(
             (visible + hidden).map(\.id).joined(separator: ","),
-            forKey: orderKey(category)
+            forKey: orderKey(token)
         )
         orderVersion += 1
     }
