@@ -148,10 +148,17 @@ nonisolated enum ProcessRunner {
 
     static func resolveExecutable(_ name: String) -> String? {
         let fm = FileManager.default
-        if name == "kubectl",
-           let override = UserDefaults.standard.string(forKey: SettingsKeys.kubectlPath), !override.isEmpty {
-            let path = (override as NSString).expandingTildeInPath
-            if fm.isExecutableFile(atPath: path) { return path }
+        if name == "kubectl" {
+            if let override = UserDefaults.standard.string(forKey: SettingsKeys.kubectlPath), !override.isEmpty {
+                let path = (override as NSString).expandingTildeInPath
+                if fm.isExecutableFile(atPath: path) { return path }
+            }
+            // Bundled copy: version-consistent and removes the
+            // install-kubectl-first prerequisite. The Settings override above
+            // still wins for users who want their own binary.
+            let bundled = Bundle.main.bundleURL
+                .appendingPathComponent("Contents/Helpers/kubectl").path
+            if fm.isExecutableFile(atPath: bundled) { return bundled }
         }
         if name.hasPrefix("/") {
             return fm.isExecutableFile(atPath: name) ? name : nil
