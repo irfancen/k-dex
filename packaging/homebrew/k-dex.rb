@@ -3,7 +3,7 @@
 # sha256 (printed by scripts/release.sh).
 cask "k-dex" do
   version "1.0.0"
-  sha256 "REPLACE_WITH_DMG_SHA256"
+  sha256 "1dcfb1025cbdd85554af1300c7a7a5aef6e5fae35554e67f5c00d478b2b793e5"
 
   url "https://github.com/irfancen/k-dex/releases/download/v#{version}/K-Dex-#{version}.dmg"
   name "K-Dex"
