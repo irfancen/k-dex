@@ -287,6 +287,8 @@ struct SidebarView: View {
                     }
                 }
             }
+            Divider()
+            Button("All Clusters…") { model.disconnect() }
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "circle.fill")
@@ -311,6 +313,7 @@ struct SidebarView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .padding(.leading, -6) // align with the section rows below
         .help("Switch cluster context")
     }
 

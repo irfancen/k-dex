@@ -9,6 +9,8 @@ final class AppModel {
         case missingKubectl
         case noContexts
         case failed(String)
+        /// Contexts loaded; waiting for the user to pick a cluster.
+        case pickCluster
         case ready
     }
 
@@ -16,6 +18,8 @@ final class AppModel {
 
     private(set) var bootState: BootState = .loading
     private(set) var contexts: [KubeContext] = []
+    /// The kubeconfig's `current-context`, shown as a badge in the picker.
+    private(set) var kubeconfigCurrentContext: String?
     private(set) var selectedContext: String = ""
     private(set) var namespaces: [String] = []
     private(set) var selectedNamespace: String?
@@ -132,17 +136,12 @@ final class AppModel {
         do {
             let (current, found) = try await Kubectl.contexts()
             contexts = found
+            kubeconfigCurrentContext = current
             guard !found.isEmpty else {
                 bootState = .noContexts
                 return
             }
-            selectedContext = current ?? found[0].name
-            bootState = .ready
-            await loadNamespaces()
-            requestRefresh()
-            startAutoRefresh()
-            Task { await self.loadKindCatalog() }
-            Task { await self.checkKubectlVersion() }
+            bootState = .pickCluster
         } catch {
             bootState = .failed(error.localizedDescription)
         }
@@ -153,9 +152,55 @@ final class AppModel {
         Task { await self.bootstrap() }
     }
 
+    /// Connects to a context from the cluster picker.
+    func connect(to name: String) {
+        selectedContext = name
+        selectedNamespace = nil
+        namespaces = []
+        kindCatalog = ResourceKind.builtins
+        sidebarSelection = .overview
+        clearData()
+        bootState = .ready
+        Task {
+            await self.loadNamespaces()
+            self.requestRefresh()
+            self.startAutoRefresh()
+            await self.loadKindCatalog()
+        }
+        Task { await self.checkKubectlVersion() }
+    }
+
+    /// Returns to the cluster picker, tearing down the live connection.
+    func disconnect() {
+        autoRefreshTask?.cancel()
+        refreshTask?.cancel()
+        clearData()
+        selectedContext = ""
+        selectedNamespace = nil
+        namespaces = []
+        kindCatalog = ResourceKind.builtins
+        podFilter = nil
+        sidebarSelection = .overview
+        bootState = .pickCluster
+        // Re-read the kubeconfig so newly added clusters show up.
+        Task { await self.reloadContexts() }
+    }
+
+    /// Quietly re-reads the kubeconfig (no loading state) so the cluster
+    /// picker stays current; failures keep the existing list.
+    func reloadContexts() async {
+        guard let (current, found) = try? await Kubectl.contexts() else { return }
+        contexts = found
+        kubeconfigCurrentContext = current
+    }
+
+    @ObservationIgnored private var didCheckKubectlVersion = false
+
     /// Warns once if kubectl predates flags the app relies on
     /// (--output-watch-events, the metrics API via --raw).
     private func checkKubectlVersion() async {
+        guard !didCheckKubectlVersion else { return }
+        didCheckKubectlVersion = true
         guard let result = try? await ProcessRunner.run("kubectl", ["version", "--client", "-o", "json"]),
               let root = try? KubeJSON.decode(result.stdout) else { return }
         let version = root["clientVersion"]["gitVersion"].stringValue

@@ -15,6 +15,8 @@ struct RootView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .missingKubectl, .noContexts, .failed:
                 WelcomeView()
+            case .pickCluster:
+                ClusterPickerView()
             case .ready:
                 mainSplit
             }
