@@ -102,5 +102,15 @@ else
     echo "warning: Sparkle tools not found in DerivedData; skipping appcast"
 fi
 
-shasum -a 256 "$DMG"
+SHA256=$(shasum -a 256 "$DMG" | awk '{print $1}')
+echo "$SHA256  $DMG"
+
+# Keep the cask template in sync; it still has to be copied to the tap repo.
+CASK=packaging/homebrew/k-dex.rb
+if [ -f "$CASK" ]; then
+    sed -i '' \
+        -e "s/^  version \".*\"/  version \"$VERSION\"/" \
+        -e "s/^  sha256 \".*\"/  sha256 \"$SHA256\"/" "$CASK"
+    echo "==> Updated $CASK — copy it to the tap repo (Casks/k-dex.rb)"
+fi
 echo "==> Done: $DMG"
