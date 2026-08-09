@@ -276,7 +276,7 @@ nonisolated extension ResourceKind {
             ])
 
         t[podDisruptionBudgets.id] = KindEnrichment(
-            displayName: "Disruption Budgets", icon: "shield.lefthalf.filled", category: .config,
+            displayName: "Pod Disruption Budgets", icon: "shield.lefthalf.filled", category: .config,
             columns: [
                 ColumnSpec("Min Available", ideal: 94, max: 116) { obj, _ in
                     let value = obj.raw["spec"]["minAvailable"]
