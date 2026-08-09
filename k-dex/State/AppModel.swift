@@ -55,6 +55,11 @@ final class AppModel {
     private(set) var isLoading = false
     private(set) var lastError: String?
     private(set) var lastRefreshed: Date?
+    /// Observable wall clock for relative cells (Age, Last Restart): ticks
+    /// every second while the app is active. Age used to read
+    /// `lastRefreshed`, which the live watch keeps frozen for up to a minute
+    /// — a new pod showed "7s" until something re-listed.
+    private(set) var now = Date()
     /// True while a `kubectl get --watch` subprocess is live for the current list.
     private(set) var isWatching = false
 
@@ -82,6 +87,7 @@ final class AppModel {
 
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var autoRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var clockTask: Task<Void, Never>?
     @ObservationIgnored private var lastNamespaceLoad: Date?
     @ObservationIgnored private var lastCRDLoad: Date?
     @ObservationIgnored private let watcher = KubectlWatcher()
@@ -116,7 +122,7 @@ final class AppModel {
             nodeMetrics: nodeMetrics,
             workloadUsage: workloadUsage,
             metricsStatus: metricsStatus,
-            now: lastRefreshed ?? Date()
+            now: now
         )
         for metric in podMetrics.values {
             context.maxPodCPUMillis = max(context.maxPodCPUMillis, Quantity.cpuMillicores(metric.cpu) ?? 0)
@@ -133,6 +139,7 @@ final class AppModel {
 
     func bootstrap() async {
         guard bootState == .loading else { return }
+        startClock()
         guard Kubectl.isAvailable else {
             bootState = .missingKubectl
             return
@@ -148,6 +155,19 @@ final class AppModel {
             bootState = .pickCluster
         } catch {
             bootState = .failed(error.localizedDescription)
+        }
+    }
+
+    /// One app-lifetime task; paused (not torn down) while inactive, since
+    /// `isAppActive` already triggers a catch-up refresh on reactivation.
+    private func startClock() {
+        guard clockTask == nil else { return }
+        clockTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard let self else { return }
+                if self.isAppActive { self.now = Date() }
+            }
         }
     }
 
