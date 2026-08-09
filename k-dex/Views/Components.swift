@@ -63,6 +63,7 @@ struct UsageBar: View {
     static let barWidth: CGFloat = 96
     private static let barHeight: CGFloat = 8
 
+    @Environment(\.colorScheme) private var colorScheme
     @State private var hoverTask: Task<Void, Never>?
     @State private var showDetail = false
 
@@ -137,17 +138,19 @@ struct UsageBar: View {
             Capsule()
                 .fill(barColor(usage))
                 .frame(width: max(Self.barHeight, Self.barWidth * min(1, usage.fraction)))
-            // Request tick: usage left of it fits in the request;
-            // right of it is burst headroom. A white core in a dark
-            // halo keeps it visible whether it lands on the bare
-            // track or on any fill color, in either appearance.
+            // Request tick: usage left of it fits in the request; right of
+            // it is burst headroom. Core-in-halo so it reads on the bare
+            // track and on any fill color — with the roles swapped per
+            // appearance: dark mode wants a white core in a dark halo,
+            // light mode the inverse (a white core vanishes into the light
+            // track, leaving the halo as two dark slivers).
             if let marker = usage.marker {
                 RoundedRectangle(cornerRadius: 1.75)
-                    .fill(.black.opacity(0.55))
+                    .fill(colorScheme == .dark ? Color.black.opacity(0.55) : Color.white.opacity(0.9))
                     .frame(width: 3.5, height: Self.barHeight)
                     .overlay {
                         RoundedRectangle(cornerRadius: 0.75)
-                            .fill(.white.opacity(0.95))
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.95) : Color.black.opacity(0.6))
                             .frame(width: 1.5)
                     }
                     .offset(x: max(0, min(Self.barWidth - 3.5, Self.barWidth * marker - 1.75)))
