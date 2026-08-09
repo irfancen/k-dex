@@ -63,16 +63,19 @@ struct CreateResourceSheet: View {
                     .padding(.vertical, 4)
             }
 
+            // 592 + 2×24 padding = the window's 640 floor, so the editor and
+            // window minimums agree and text keeps a comfortable margin even
+            // fully shrunk (the sheet also opens at this minimum).
             if loadingTemplate {
                 ProgressView("Reading the CRD schema…")
                     .controlSize(.small)
-                    .frame(minWidth: 640, minHeight: 440)
-                    .padding(.horizontal, 14)
+                    .frame(minWidth: 592, minHeight: 440)
+                    .padding(.horizontal, 24)
                     .padding(.vertical, 10)
             } else {
                 YAMLEditor(text: $yaml)
-                    .frame(minWidth: 640, minHeight: 440)
-                    .padding(.horizontal, 14)
+                    .frame(minWidth: 592, minHeight: 440)
+                    .padding(.horizontal, 24)
                     .padding(.vertical, 10)
             }
 
