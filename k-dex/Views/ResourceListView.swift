@@ -20,6 +20,13 @@ struct ResourceListView: View {
         self.kind = kind
         _columnCustomization = SceneStorage(wrappedValue: TableColumnCustomization<KubeObject>(), "columns-\(kind.id)")
         _storedSort = SceneStorage(wrappedValue: "", "sort-\(kind.id)")
+        // The newest-first default is expressed as a real header selection so
+        // the Age column carries the sort indicator; a persisted user choice
+        // replaces it in onAppear. (Age "forward" = newest first — dates sort
+        // inverted so the first header click gives the useful direction.)
+        if kind == .replicaSets || kind == .jobs || kind == .events {
+            _sortOrder = State(initialValue: [ColumnSort(id: "Age", order: .forward)])
+        }
     }
 
     var body: some View {
@@ -64,7 +71,8 @@ struct ResourceListView: View {
         .tableStyle(.inset)
         .alternatingRowBackgrounds(.disabled)
         .onAppear {
-            guard sortOrder.isEmpty, !storedSort.isEmpty else { return }
+            // A stored choice beats the per-kind default the init installed.
+            guard !storedSort.isEmpty else { return }
             let parts = storedSort.split(separator: "|", maxSplits: 1)
             guard parts.count == 2 else { return }
             sortOrder = [ColumnSort(id: String(parts[0]), order: parts[1] == "reverse" ? .reverse : .forward)]

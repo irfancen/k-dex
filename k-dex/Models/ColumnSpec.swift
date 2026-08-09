@@ -148,9 +148,9 @@ nonisolated enum ColumnSorting {
         case "Namespace":
             return SortKey(text: object.namespace, tieBreak: object.name)
         case "Age":
-            return SortKey(date: kind.ageDate(object) ?? .distantPast)
+            return SortKey(tieBreak: object.name, date: kind.ageDate(object) ?? .distantPast)
         case "Last Restart":
-            return SortKey(date: lastRestartDate(object, kind: kind, ctx: ctx) ?? .distantPast)
+            return SortKey(tieBreak: object.name, date: lastRestartDate(object, kind: kind, ctx: ctx) ?? .distantPast)
         default:
             guard let column else { return SortKey() }
             let text = column.cell(object, ctx).text
@@ -165,9 +165,12 @@ nonisolated enum ColumnSorting {
 
     static func compare(_ lhs: SortKey, _ rhs: SortKey) -> ComparisonResult {
         if let left = lhs.date, let right = rhs.date {
-            // Ascending = newest first.
-            if left == right { return .orderedSame }
-            return left > right ? .orderedAscending : .orderedDescending
+            // Ascending = newest first. Equal dates fall through to the
+            // text/tie-break compare so same-instant rows keep a stable
+            // order instead of jiggling across re-sorts.
+            if left != right {
+                return left > right ? .orderedAscending : .orderedDescending
+            }
         }
         if let left = lhs.numeric, let right = rhs.numeric {
             if left == right { return .orderedSame }
