@@ -66,7 +66,9 @@ final class AppModel {
     // MARK: UI state
 
     var searchText = ""
-    var selectedObjectID: String?
+    /// Selected rows. Multi-select exists for batch actions; the detail
+    /// panel follows the selection only while it is exactly one object.
+    var selectedObjectIDs: Set<String> = []
     /// ⌘K resource palette visibility (in-window overlay).
     var showKindSearch = false
     /// Set when the installed kubectl is older than the app assumes; dismissible.
@@ -107,8 +109,8 @@ final class AppModel {
     }
 
     var selectedObject: KubeObject? {
-        guard let selectedObjectID else { return nil }
-        return objects.first { $0.id == selectedObjectID }
+        guard selectedObjectIDs.count == 1, let id = selectedObjectIDs.first else { return nil }
+        return objects.first { $0.id == id }
     }
 
     var selectedHelmRelease: HelmRelease? {
@@ -351,7 +353,7 @@ final class AppModel {
         podMetrics = [:]
         nodeMetrics = [:]
         metricsStatus = .unknown
-        selectedObjectID = nil
+        selectedObjectIDs = []
         selectedHelmID = nil
         lastError = nil
     }
@@ -562,7 +564,7 @@ final class AppModel {
         guard let pending = pendingSelection, pending.kind == kind else { return }
         pendingSelection = nil
         if let match = objects.first(where: { $0.name == pending.name && $0.namespace == pending.namespace }) {
-            selectedObjectID = match.id
+            selectedObjectIDs = [match.id]
         }
     }
 
@@ -720,7 +722,7 @@ final class AppModel {
     /// Opens the detail panel for an object on a specific tab.
     func openDetail(_ object: KubeObject, tab: String) {
         pendingDetailTab = tab
-        selectedObjectID = object.id
+        selectedObjectIDs = [object.id]
     }
 
     func deleteObject(_ object: KubeObject, kind: ResourceKind) {
