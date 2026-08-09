@@ -128,7 +128,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\nHELPERS=\"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Helpers\"\nmkdir -p \"${HELPERS}\"\nSRC=\"${KDEX_KUBECTL:-$(command -v kubectl || true)}\"\nif [ -z \"${SRC}\" ] && [ -x /opt/homebrew/bin/kubectl ]; then SRC=/opt/homebrew/bin/kubectl; fi\nif [ -n \"${SRC}\" ] && [ -x \"${SRC}\" ]; then\n  cp -f \"${SRC}\" \"${HELPERS}/kubectl\"\n  codesign --force --options runtime --sign \"${EXPANDED_CODE_SIGN_IDENTITY:--}\" \"${HELPERS}/kubectl\"\nelse\n  echo \"warning: no kubectl found to bundle (set KDEX_KUBECTL); app will fall back to PATH lookup\"\nfi";
+			shellScript = "set -e\nHELPERS=\"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Helpers\"\nmkdir -p \"${HELPERS}\"\nSRC=\"${KDEX_KUBECTL:-$(command -v kubectl || true)}\"\nif [ -z \"${SRC}\" ] && [ -x /opt/homebrew/bin/kubectl ]; then SRC=/opt/homebrew/bin/kubectl; fi\nif [ -n \"${SRC}\" ] && [ -x \"${SRC}\" ]; then\n  cp -f \"${SRC}\" \"${HELPERS}/kubectl\"\n  # kubectl is Apache-2.0; redistribution requires shipping the license.\n  # Resources, not Helpers: codesign rejects non-code files in Helpers.\n  cp -f \"${SRCROOT}/packaging/kubectl-LICENSE\" \"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Resources/kubectl-LICENSE\"\n  codesign --force --options runtime --sign \"${EXPANDED_CODE_SIGN_IDENTITY:--}\" \"${HELPERS}/kubectl\"\nelse\n  echo \"warning: no kubectl found to bundle (set KDEX_KUBECTL); app will fall back to PATH lookup\"\nfi";
 		};
 /* End PBXShellScriptBuildPhase section */
 
