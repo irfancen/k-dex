@@ -314,7 +314,7 @@ private struct LogExpandedSheet: View {
             minWidth: 900, idealWidth: 1080, maxWidth: .infinity,
             minHeight: 600, idealHeight: 760, maxHeight: .infinity
         )
-        .background(SheetWindowConfigurator())
+        .background(SheetWindowConfigurator(minSize: CGSize(width: 900, height: 600)))
     }
 }
 

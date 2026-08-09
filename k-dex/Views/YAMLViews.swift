@@ -65,7 +65,7 @@ struct YAMLExpandedEditorSheet: View {
             minWidth: 860, idealWidth: 1040, maxWidth: .infinity,
             minHeight: 600, idealHeight: 760, maxHeight: .infinity
         )
-        .background(SheetWindowConfigurator())
+        .background(SheetWindowConfigurator(minSize: CGSize(width: 860, height: 600)))
     }
 
     private func runApply() {
