@@ -20,13 +20,14 @@ struct ResourceListView: View {
         self.kind = kind
         _columnCustomization = SceneStorage(wrappedValue: TableColumnCustomization<KubeObject>(), "columns-\(kind.id)")
         _storedSort = SceneStorage(wrappedValue: "", "sort-\(kind.id)")
-        // The newest-first default is expressed as a real header selection so
-        // the Age column carries the sort indicator; a persisted user choice
-        // replaces it in onAppear. (Age "forward" = newest first — dates sort
-        // inverted so the first header click gives the useful direction.)
-        if kind == .replicaSets || kind == .jobs || kind == .events {
-            _sortOrder = State(initialValue: [ColumnSort(id: "Age", order: .forward)])
-        }
+        // Every table carries a visible sort: the default is expressed as a
+        // real header selection, so what the indicator says and what the
+        // rows do always agree. Hash-named kinds default to Age (forward =
+        // newest first — dates sort inverted so the first header click gives
+        // the useful direction); everything else to Name. A persisted user
+        // choice replaces this in onAppear.
+        let defaultsToAge = kind == .replicaSets || kind == .jobs || kind == .events
+        _sortOrder = State(initialValue: [ColumnSort(id: defaultsToAge ? "Age" : "name", order: .forward)])
     }
 
     var body: some View {
