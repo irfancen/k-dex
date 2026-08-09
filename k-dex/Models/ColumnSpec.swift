@@ -91,10 +91,11 @@ nonisolated struct ColumnSpec: Identifiable, Sendable {
 nonisolated enum ColumnSorting {
     static func numericValue(_ text: String, columnID: String) -> Double? {
         guard let token = text.split(separator: " ").first.map(String.init), token != "–" else { return nil }
-        // "1/2" ready ratios → sort by the ready count.
+        // "1/2" ready ratios → sort by the ready count. isFinite for the
+        // same reason as below: "nan/1" must not poison the comparator.
         if token.contains("/") {
             let parts = token.split(separator: "/")
-            if parts.count == 2, let ready = Double(parts[0]) { return ready }
+            if parts.count == 2, let ready = Double(parts[0]), ready.isFinite { return ready }
         }
         if columnID.hasPrefix("CPU") { return Quantity.cpuMillicores(token) }
         if columnID.hasPrefix("Memory") || columnID.hasPrefix("Mem") { return Quantity.memoryBytes(token) }
