@@ -92,12 +92,24 @@ else
 fi
 
 echo "==> Generating Sparkle appcast"
+# Cold start, always: generate_appcast silently reuses whatever it finds —
+# stale extraction-cache entries AND leftover delta files in build/ — and
+# emits appcast entries for deltas built against superseded DMG bytes (or
+# entries whose files it never wrote). Both bit real releases; derive
+# everything fresh from the DMGs actually present.
+rm -rf "$HOME/Library/Caches/Sparkle_generate_appcast"
+rm -f build/*.delta build/appcast.xml
 SPARKLE_BIN=$(find "$HOME/Library/Developer/Xcode/DerivedData" -type d -path "*artifacts/sparkle/Sparkle/bin" 2>/dev/null | head -1)
 if [ -n "$SPARKLE_BIN" ]; then
     "$SPARKLE_BIN/generate_appcast" build \
         --download-url-prefix "https://github.com/irfancen/k-dex/releases/download/v$VERSION/" \
         -o build/appcast.xml
-    echo "    build/appcast.xml (upload as a release asset alongside the DMG)"
+    # The prefix applies to every entry, but each DMG lives under its own
+    # release tag; rewrite entries to point there (identity for the current
+    # version, a correction for the older ones). Deltas stay on $VERSION —
+    # they are assets of the release that introduced them.
+    sed -E -i '' 's|releases/download/v[0-9.]+/K-Dex-([0-9]+\.[0-9]+\.[0-9]+)\.dmg|releases/download/v\1/K-Dex-\1.dmg|g' build/appcast.xml
+    echo "    build/appcast.xml (upload as a release asset alongside the DMG and any *.delta files)"
 else
     echo "warning: Sparkle tools not found in DerivedData; skipping appcast"
 fi
