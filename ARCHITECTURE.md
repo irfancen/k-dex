@@ -145,14 +145,20 @@ transport: `kubectl get --raw /apis/metrics.k8s.io/v1beta1/...` returns real
 JSON (per-container pod usage, node usage) — `--raw` is the wrapper
 architecture's REST escape hatch, and it replaced an earlier version that
 scraped `kubectl top`'s tabular output. Requires metrics-server in the
-cluster; without it the usage columns degrade to request/limit text from the
-pod spec. Node percentages are computed against each node's
-`status.allocatable`. Usage bars pick a denominator in priority order:
-limit → request → largest consumer in the list (the last one rendered as an
-unbounded blue bar rather than green/orange/red thresholds). Workload rows
-(Deployments etc.) don't have their own metrics; K-Dex fetches pods + pod
-metrics and sums them per workload by matching each workload's `matchLabels`
-selector against pod labels.
+cluster; without it the usage columns degrade to dimmed request/limit text
+from the pod spec, and the failure is classified from kubectl's stderr
+(`MetricsStatus`: not installed / API registered but unavailable / forbidden /
+empty response) so the UI can say *why* — a missing metrics API, a 403, and a
+metrics-server that can't reach the kubelets are three different fixes, and a
+bare `try?` used to render all of them identically to an idle cluster. Node
+percentages are computed against each node's `status.allocatable`. Usage bars
+pick a denominator in priority order: limit → request → largest consumer in
+the list (the last one rendered as an unbounded blue bar rather than
+green/orange/red thresholds); when the denominator is the limit, a tick on
+the bar marks the request, and the exact spec'd numbers surface on hover.
+Workload rows (Deployments etc.) don't have their own metrics; K-Dex fetches
+pods + pod metrics and sums them per workload by matching each workload's
+`matchLabels` selector against pod labels.
 
 ### 7. Helm — `Services/HelmService.swift`
 

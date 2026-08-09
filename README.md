@@ -30,8 +30,10 @@ A clean, minimal Kubernetes UI for macOS, built with SwiftUI.
 - **Helm releases** — read directly from release Secrets (no helm CLI needed):
   chart, status, values, manifest, notes, history — values and manifest behind
   an explicit reveal, since they often contain credentials.
-- **Metrics** — pod/node CPU & memory usage bars via metrics-server, when
-  available.
+- **Metrics** — pod/node CPU & memory usage bars via metrics-server. Bars run
+  to the limit with a tick marking the request; exact numbers on hover. When
+  metrics are missing, the app says why (not installed, RBAC, unreachable
+  kubelets) and shows the spec'd requests/limits dimmed instead.
 - **Auto-updates** via Sparkle.
 
 ## How it works
