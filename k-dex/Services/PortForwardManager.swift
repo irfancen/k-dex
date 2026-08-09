@@ -94,9 +94,14 @@ final class PortForwardManager {
     }
 
     func stopAll() {
-        for process in processes.values where process.isRunning {
+        // Every one of these exits is user-requested: mark them so onExit
+        // removes the rows instead of reporting SIGTERM as a failure. Rows
+        // without a live process (already failed) are cleared immediately.
+        for (id, process) in processes where process.isRunning {
+            stopping.insert(id)
             process.terminate()
         }
+        forwards.removeAll { processes[$0.id]?.isRunning != true }
     }
 
     private func update(id: UUID, state: ForwardState) {

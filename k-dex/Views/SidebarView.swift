@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SidebarView: View {
     @Environment(AppModel.self) private var model
+    @Environment(PortForwardManager.self) private var portForwards
     @Environment(\.colorScheme) private var colorScheme
     /// Comma-separated ids of collapsed sidebar sections (for sections that
     /// default to expanded).
@@ -288,7 +289,13 @@ struct SidebarView: View {
                 }
             }
             Divider()
-            Button("All Clusters…") { model.disconnect() }
+            Button("All Clusters…") {
+                // Tunnels must not outlive the connection: the picker has no
+                // forwards UI, and a forward left running would resurface
+                // under whichever cluster is connected next.
+                portForwards.stopAll()
+                model.disconnect()
+            }
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "circle.fill")

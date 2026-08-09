@@ -55,8 +55,10 @@ struct PortForwardListView: View {
                                 .lineLimit(1)
                             // String(port): LocalizedStringKey interpolation
                             // would localize Ints as quantities ("5.173" for
-                            // port 5173 under a dot-grouping locale).
-                            Text("localhost:\(String(forward.localPort)) → \(String(forward.remotePort)) · \(forward.namespace)")
+                            // port 5173 under a dot-grouping locale). The
+                            // context is named so a tunnel can never be
+                            // misread as belonging to the current cluster.
+                            Text("localhost:\(String(forward.localPort)) → \(String(forward.remotePort)) · \(forward.namespace) · \(forward.context)")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             if case .failed(let message) = forward.state {
