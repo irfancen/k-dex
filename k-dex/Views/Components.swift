@@ -297,25 +297,60 @@ struct SheetWindowConfigurator: NSViewRepresentable {
     /// into an empty pill. Should match the content's own frame minimums.
     var minSize = CGSize(width: 640, height: 480)
 
-    final class Coordinator {
+    final class Coordinator: NSObject {
         private weak var window: NSWindow?
         private var observation: NSKeyValueObservation?
+        private var minSize = CGSize.zero
 
         func attach(_ window: NSWindow, minSize: CGSize) {
-            guard self.window !== window else { return }
-            self.window = window
-            window.styleMask.insert(.resizable)
-            window.contentMinSize = minSize
-            observation = window.observe(\.styleMask) { window, _ in
-                // Hop to the main actor (window KVO fires there anyway, but
-                // the closure isn't statically isolated), and re-insert
-                // asynchronously — doing it inside the KVO callback would
-                // recurse into the setter being observed.
-                Task { @MainActor [weak window] in
-                    guard let window, !window.styleMask.contains(.resizable) else { return }
-                    window.styleMask.insert(.resizable)
+            self.minSize = minSize
+            if self.window !== window {
+                self.window = window
+                observation = window.observe(\.styleMask) { window, _ in
+                    // Hop to the main actor (window KVO fires there anyway,
+                    // but the closure isn't statically isolated), and
+                    // re-insert asynchronously — doing it inside the KVO
+                    // callback would recurse into the observed setter.
+                    Task { @MainActor [weak window] in
+                        guard let window, !window.styleMask.contains(.resizable) else { return }
+                        window.styleMask.insert(.resizable)
+                    }
                 }
+                NotificationCenter.default.addObserver(
+                    self, selector: #selector(windowDidResize(_:)),
+                    name: NSWindow.didResizeNotification, object: window
+                )
             }
+            enforce()
+        }
+
+        @objc private func windowDidResize(_ note: Notification) {
+            enforce()
+        }
+
+        /// SwiftUI's sheet machinery rewrites the window's sizing constraints
+        /// after presentation, so nothing here can be set-and-forget: mask,
+        /// floor, and current size are re-asserted on every update and every
+        /// resize tick.
+        private func enforce() {
+            guard let window else { return }
+            if !window.styleMask.contains(.resizable) {
+                window.styleMask.insert(.resizable)
+            }
+            if window.contentMinSize != minSize {
+                window.contentMinSize = minSize
+            }
+            let content = window.contentRect(forFrameRect: window.frame).size
+            if content.width < minSize.width || content.height < minSize.height {
+                window.setContentSize(CGSize(
+                    width: max(content.width, minSize.width),
+                    height: max(content.height, minSize.height)
+                ))
+            }
+        }
+
+        deinit {
+            NotificationCenter.default.removeObserver(self)
         }
     }
 
