@@ -181,71 +181,107 @@ struct LogView: View {
         return parts
     }
 
+    /// One row when the panel is wide enough, toggles and filter/actions on
+    /// two rows when it isn't. Without the reflow (and the fixedSize on the
+    /// toggle group) a narrow detail panel width-starves the toggle labels,
+    /// which wrap letter-by-letter into vertical text.
     private var controls: some View {
-        HStack(spacing: 10) {
-            if containers.count > 1 {
-                // Menu + fixed label instead of Picker: NSPopUpButton derives
-                // its width from its menu items (which differ per workload),
-                // so no frame arrangement renders it consistently. A Menu's
-                // button sizes to the label, which is pinned here.
-                Menu {
-                    Picker("Container", selection: $container) {
-                        Text("All Containers").tag("")
-                        ForEach(containers, id: \.self) { Text($0).tag($0) }
-                    }
-                    .pickerStyle(.inline)
-                    .labelsHidden()
-                } label: {
-                    Text(container.isEmpty ? "All Containers" : container)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .frame(width: 118, alignment: .leading)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                containerMenu
+                toggles
+                filterField
+                Spacer()
+                actionButtons
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 10) {
+                    containerMenu
+                    toggles
+                    Spacer(minLength: 0)
                 }
-                .fixedSize()
-                .help("Container")
-            }
-            Toggle("Follow", isOn: $follow)
-                .toggleStyle(.checkbox)
-                .disabled(showPrevious)
-                .help("Pin to the newest lines (scrolling up unpins)")
-            Toggle("Time", isOn: $showTimestamps)
-                .toggleStyle(.checkbox)
-                .help("Show timestamps")
-            Toggle("Wrap", isOn: $wrapLines)
-                .toggleStyle(.checkbox)
-                .help("Wrap long lines")
-            Toggle("Previous", isOn: $showPrevious)
-                .toggleStyle(.checkbox)
-                .help("Logs from the previous (crashed) container run")
-            TextField("Filter", text: $filter, prompt: Text("Filter"))
-                .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 150)
-            Spacer()
-            Button {
-                streamer.clear()
-            } label: {
-                Image(systemName: "trash")
-            }
-            .help("Clear")
-            .disabled(streamer.lines.isEmpty)
-            Button {
-                Pasteboard.copy(streamer.lines.map(\.text).joined(separator: "\n"))
-            } label: {
-                Image(systemName: "doc.on.doc")
-            }
-            .help("Copy all")
-            .disabled(streamer.lines.isEmpty)
-            if allowsExpansion {
-                Button {
-                    showExpanded = true
-                } label: {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                HStack(spacing: 10) {
+                    filterField
+                    Spacer()
+                    actionButtons
                 }
-                .help("Open logs in a larger view")
             }
         }
         .controlSize(.small)
         .padding(8)
+    }
+
+    @ViewBuilder
+    private var containerMenu: some View {
+        if containers.count > 1 {
+            // Menu + fixed label instead of Picker: NSPopUpButton derives
+            // its width from its menu items (which differ per workload),
+            // so no frame arrangement renders it consistently. A Menu's
+            // button sizes to the label, which is pinned here.
+            Menu {
+                Picker("Container", selection: $container) {
+                    Text("All Containers").tag("")
+                    ForEach(containers, id: \.self) { Text($0).tag($0) }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            } label: {
+                Text(container.isEmpty ? "All Containers" : container)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(width: 118, alignment: .leading)
+            }
+            .fixedSize()
+            .help("Container")
+        }
+    }
+
+    private var toggles: some View {
+        HStack(spacing: 10) {
+            Toggle("Follow", isOn: $follow)
+                .disabled(showPrevious)
+                .help("Pin to the newest lines (scrolling up unpins)")
+            Toggle("Time", isOn: $showTimestamps)
+                .help("Show timestamps")
+            Toggle("Wrap", isOn: $wrapLines)
+                .help("Wrap long lines")
+            Toggle("Previous", isOn: $showPrevious)
+                .help("Logs from the previous (crashed) container run")
+        }
+        .toggleStyle(.checkbox)
+        .fixedSize()
+    }
+
+    private var filterField: some View {
+        TextField("Filter", text: $filter, prompt: Text("Filter"))
+            .textFieldStyle(.roundedBorder)
+            .frame(minWidth: 70, maxWidth: 150)
+    }
+
+    @ViewBuilder
+    private var actionButtons: some View {
+        Button {
+            streamer.clear()
+        } label: {
+            Image(systemName: "trash")
+        }
+        .help("Clear")
+        .disabled(streamer.lines.isEmpty)
+        Button {
+            Pasteboard.copy(streamer.lines.map(\.text).joined(separator: "\n"))
+        } label: {
+            Image(systemName: "doc.on.doc")
+        }
+        .help("Copy all")
+        .disabled(streamer.lines.isEmpty)
+        if allowsExpansion {
+            Button {
+                showExpanded = true
+            } label: {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+            }
+            .help("Open logs in a larger view")
+        }
     }
 }
 
