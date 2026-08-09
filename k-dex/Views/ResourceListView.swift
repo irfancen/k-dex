@@ -79,6 +79,8 @@ struct ResourceListView: View {
         }
         .tableStyle(.inset)
         .alternatingRowBackgrounds(.disabled)
+        // Click-on-empty deselects, as in every AppKit table.
+        .background(TableEmptyAreaDeselector { model.selectedObjectIDs = [] })
         .onAppear {
             // A stored choice beats the per-kind default the init installed.
             guard !storedSort.isEmpty else { return }
