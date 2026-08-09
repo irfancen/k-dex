@@ -73,7 +73,7 @@ struct PortForwardListView: View {
                             Button {
                                 NSWorkspace.shared.open(url)
                             } label: {
-                                Image(systemName: "safari")
+                                Label("Open in Browser", systemImage: "safari").labelStyle(.iconOnly)
                             }
                             .buttonStyle(.borderless)
                             .help("Open in browser")
@@ -81,7 +81,7 @@ struct PortForwardListView: View {
                         Button {
                             manager.stop(id: forward.id)
                         } label: {
-                            Image(systemName: "xmark.circle.fill")
+                            Label("Stop Forwarding", systemImage: "xmark.circle.fill").labelStyle(.iconOnly)
                         }
                         .buttonStyle(.borderless)
                         .help("Stop forwarding")

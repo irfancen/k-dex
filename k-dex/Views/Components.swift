@@ -212,7 +212,7 @@ struct ErrorBanner: View {
                 Button {
                     Pasteboard.copy(message)
                 } label: {
-                    Image(systemName: "doc.on.doc")
+                    Label("Copy", systemImage: "doc.on.doc").labelStyle(.iconOnly)
                 }
                 .buttonStyle(.borderless)
                 .controlSize(.small)
