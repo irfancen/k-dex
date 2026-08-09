@@ -16,11 +16,18 @@ private final class FixtureRunner: CommandRunning, @unchecked Sendable {
     }
 
     func run(_ executable: String, _ arguments: [String], stdin: Data?) async throws -> ProcessResult {
-        lock.lock()
-        invocations.append([executable] + arguments)
-        lock.unlock()
+        record([executable] + arguments)
         return respond(arguments)
             ?? ProcessResult(stdout: Data(), stderr: Data("no fixture for \(arguments)".utf8), exitCode: 1)
+    }
+
+    /// Synchronous on purpose: Swift 6 forbids NSLock inside async bodies
+    /// (a suspension inside the critical section would deadlock); a sync
+    /// method can't suspend, which proves the safety instead of assuming it.
+    private func record(_ call: [String]) {
+        lock.lock()
+        invocations.append(call)
+        lock.unlock()
     }
 
     var calls: [[String]] {
@@ -39,6 +46,7 @@ private func fail(_ stderr: String) -> ProcessResult {
 
 /// Swaps the process-wide runner for the duration of `body`. The suite is
 /// `.serialized` because `Commands.runner` is one global knob.
+@discardableResult
 private func withRunner<T>(_ runner: FixtureRunner, _ body: () async throws -> T) async rethrows -> T {
     let previous = Commands.runner
     Commands.runner = runner
