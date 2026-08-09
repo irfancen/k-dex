@@ -30,6 +30,9 @@ struct KDexApp: App {
                 .frame(minWidth: 980, minHeight: 580)
         }
         .commands {
+            // View → Hide/Show Sidebar (⌃⌘S), absent by default in a
+            // NavigationSplitView app unless explicitly requested.
+            SidebarCommands()
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") {
                     updaterController.updater.checkForUpdates()

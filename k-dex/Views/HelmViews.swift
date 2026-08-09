@@ -196,7 +196,7 @@ struct HelmDetailView: View {
                 Button {
                     model.selectedHelmID = nil
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
+                    Label("Deselect Release", systemImage: "xmark.circle.fill").labelStyle(.iconOnly)
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.borderless)

@@ -96,7 +96,7 @@ struct ResourceDetailView: View {
                 Button {
                     model.selectedObjectID = nil
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
+                    Label("Close Details", systemImage: "xmark.circle.fill").labelStyle(.iconOnly)
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.borderless)
@@ -122,7 +122,7 @@ struct ResourceDetailView: View {
                             Button("Delete…", role: .destructive, action: onDelete)
                         }
                     } label: {
-                        Image(systemName: "ellipsis.circle")
+                        Label("Actions", systemImage: "ellipsis.circle").labelStyle(.iconOnly)
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.borderless)
@@ -381,10 +381,17 @@ private struct DataSection: View {
                                     revealedKeys.insert(key)
                                 }
                             } label: {
-                                Image(systemName: revealedKeys.contains(key) ? "eye.slash" : "eye")
-                                    .font(.caption)
+                                // A Label, not a bare Image: VoiceOver reads
+                                // the title, and iconOnly keeps the visual.
+                                Label(
+                                    revealedKeys.contains(key) ? "Conceal Value" : "Reveal Value",
+                                    systemImage: revealedKeys.contains(key) ? "eye.slash" : "eye"
+                                )
+                                .labelStyle(.iconOnly)
+                                .font(.caption)
                             }
                             .buttonStyle(.borderless)
+                            .help(revealedKeys.contains(key) ? "Conceal value" : "Reveal value")
                         }
                     }
                     Text(displayValue(key: key, raw: value.stringValue))

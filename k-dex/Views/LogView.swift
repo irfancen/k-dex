@@ -263,14 +263,14 @@ struct LogView: View {
         Button {
             streamer.clear()
         } label: {
-            Image(systemName: "trash")
+            Label("Clear Logs", systemImage: "trash").labelStyle(.iconOnly)
         }
         .help("Clear")
         .disabled(streamer.lines.isEmpty)
         Button {
             Pasteboard.copy(streamer.lines.map(\.text).joined(separator: "\n"))
         } label: {
-            Image(systemName: "doc.on.doc")
+            Label("Copy All Logs", systemImage: "doc.on.doc").labelStyle(.iconOnly)
         }
         .help("Copy all")
         .disabled(streamer.lines.isEmpty)
@@ -278,7 +278,7 @@ struct LogView: View {
             Button {
                 showExpanded = true
             } label: {
-                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                Label("Expand Logs", systemImage: "arrow.up.left.and.arrow.down.right").labelStyle(.iconOnly)
             }
             .help("Open logs in a larger view")
         }

@@ -107,7 +107,7 @@ struct ResourceListView: View {
                         Button {
                             model.clearPodFilter()
                         } label: {
-                            Image(systemName: "xmark.circle.fill")
+                            Label("Clear Pod Filter", systemImage: "xmark.circle.fill").labelStyle(.iconOnly)
                                 .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.borderless)
