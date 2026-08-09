@@ -98,7 +98,10 @@ nonisolated enum ColumnSorting {
         }
         if columnID.hasPrefix("CPU") { return Quantity.cpuMillicores(token) }
         if columnID.hasPrefix("Memory") || columnID.hasPrefix("Mem") { return Quantity.memoryBytes(token) }
-        if let plain = Double(token) { return plain }
+        // isFinite: Double("nan")/Double("inf") parse, and a single NaN key
+        // breaks the comparator's strict weak ordering — sorted(by:) then
+        // silently mis-sorts unrelated rows rather than trapping.
+        if let plain = Double(token), plain.isFinite { return plain }
         return Quantity.memoryBytes(token) // catches "1Gi" capacities etc.
     }
 }
