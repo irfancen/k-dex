@@ -6,18 +6,34 @@
 	objectVersion = 77;
 	objects = {
 
-/* Begin PBXFileReference section */
-		8366EE0A301364D40084F6DF /* k-dex.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = "k-dex.app"; path = "K-Dex.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-/* End PBXFileReference section */
-
 /* Begin PBXBuildFile section */
 		8366EEB3301364D40084F6DF /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 8366EEB2301364D40084F6DF /* Sparkle */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		83FFFADC30285E1A0047D97A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8366EE02301364D40084F6DF /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8366EE09301364D40084F6DF;
+			remoteInfo = "k-dex";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		8366EE0A301364D40084F6DF /* k-dex.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = "k-dex.app"; path = "K-Dex.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		83FFFAD830285E1A0047D97A /* K-DexTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "K-DexTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		8366EE0C301364D40084F6DF /* k-dex */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "k-dex";
+			sourceTree = "<group>";
+		};
+		83FFFAD930285E1A0047D97A /* K-DexTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "K-DexTests";
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -31,6 +47,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		83FFFAD530285E1A0047D97A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -38,6 +61,7 @@
 			isa = PBXGroup;
 			children = (
 				8366EE0C301364D40084F6DF /* k-dex */,
+				83FFFAD930285E1A0047D97A /* K-DexTests */,
 				8366EE0B301364D40084F6DF /* Products */,
 			);
 			sourceTree = "<group>";
@@ -46,6 +70,7 @@
 			isa = PBXGroup;
 			children = (
 				8366EE0A301364D40084F6DF /* k-dex.app */,
+				83FFFAD830285E1A0047D97A /* K-DexTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -77,6 +102,29 @@
 			productReference = 8366EE0A301364D40084F6DF /* k-dex.app */;
 			productType = "com.apple.product-type.application";
 		};
+		83FFFAD730285E1A0047D97A /* K-DexTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 83FFFAE030285E1A0047D97A /* Build configuration list for PBXNativeTarget "K-DexTests" */;
+			buildPhases = (
+				83FFFAD430285E1A0047D97A /* Sources */,
+				83FFFAD530285E1A0047D97A /* Frameworks */,
+				83FFFAD630285E1A0047D97A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				83FFFADD30285E1A0047D97A /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				83FFFAD930285E1A0047D97A /* K-DexTests */,
+			);
+			name = "K-DexTests";
+			packageProductDependencies = (
+			);
+			productName = "K-DexTests";
+			productReference = 83FFFAD830285E1A0047D97A /* K-DexTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -90,6 +138,10 @@
 					8366EE09301364D40084F6DF = {
 						CreatedOnToolsVersion = 26.6;
 					};
+					83FFFAD730285E1A0047D97A = {
+						CreatedOnToolsVersion = 26.6;
+						TestTargetID = 8366EE09301364D40084F6DF;
+					};
 				};
 			};
 			buildConfigurationList = 8366EE05301364D40084F6DF /* Build configuration list for PBXProject "k-dex" */;
@@ -100,19 +152,37 @@
 				Base,
 			);
 			mainGroup = 8366EE01301364D40084F6DF;
+			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				8366EEB1301364D40084F6DF /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
-			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 8366EE0B301364D40084F6DF /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
 				8366EE09301364D40084F6DF /* k-dex */,
+				83FFFAD730285E1A0047D97A /* K-DexTests */,
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		8366EE08301364D40084F6DF /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		83FFFAD630285E1A0047D97A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
 		8366EEFF301364D40084F6DF /* Bundle kubectl */ = {
@@ -132,16 +202,6 @@
 		};
 /* End PBXShellScriptBuildPhase section */
 
-/* Begin PBXResourcesBuildPhase section */
-		8366EE08301364D40084F6DF /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXResourcesBuildPhase section */
-
 /* Begin PBXSourcesBuildPhase section */
 		8366EE06301364D40084F6DF /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -150,7 +210,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		83FFFAD430285E1A0047D97A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		83FFFADD30285E1A0047D97A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8366EE09301364D40084F6DF /* k-dex */;
+			targetProxy = 83FFFADC30285E1A0047D97A /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		8366EE13301364D40084F6DF /* Debug */ = {
@@ -339,6 +414,50 @@
 			};
 			name = Release;
 		};
+		83FFFADE30285E1A0047D97A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 83JA994J48;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.irfancen.K-DexTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/K-Dex.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/K-Dex";
+			};
+			name = Debug;
+		};
+		83FFFADF30285E1A0047D97A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 83JA994J48;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.irfancen.K-DexTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/K-Dex.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/K-Dex";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -356,6 +475,15 @@
 			buildConfigurations = (
 				8366EE16301364D40084F6DF /* Debug */,
 				8366EE17301364D40084F6DF /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		83FFFAE030285E1A0047D97A /* Build configuration list for PBXNativeTarget "K-DexTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				83FFFADE30285E1A0047D97A /* Debug */,
+				83FFFADF30285E1A0047D97A /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
