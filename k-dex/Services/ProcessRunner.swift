@@ -101,6 +101,15 @@ nonisolated enum ProcessRunner {
         func processExited(_ code: Int32) {
             lock.lock(); exitCode = code; lock.unlock()
             tryFire()
+            // Watchdog: EOF requires every write-end to close, and a
+            // grandchild that inherited the pipe (exec credential plugins can
+            // outlive kubectl) may never close it — which would wedge onExit
+            // forever, leaving a forward stuck in .starting or a log view
+            // streaming. Fire with the stderr already buffered instead; no
+            // pipe is read here, so drains can't race.
+            DispatchQueue.global().asyncAfter(deadline: .now() + 2) { [weak self] in
+                self?.tryFire(force: true)
+            }
         }
 
         func stdoutEOF() {
@@ -113,9 +122,9 @@ nonisolated enum ProcessRunner {
             tryFire()
         }
 
-        private func tryFire() {
+        private func tryFire(force: Bool = false) {
             lock.lock()
-            guard !fired, let code = exitCode, stdoutDone, stderrDone else {
+            guard !fired, let code = exitCode, force || (stdoutDone && stderrDone) else {
                 lock.unlock()
                 return
             }
