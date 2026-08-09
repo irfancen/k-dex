@@ -57,9 +57,14 @@
 the DMG, deltas, appcast, and cask sha are **one atomic set**: publish them
 from a single run, never mixed across runs.
 
-- **Clear `~/Library/Caches/Sparkle_generate_appcast` before a re-run.**
-  Stale cache entries make `generate_appcast` silently skip delta creation
-  (exit 0, no warning) — v1.1.0's re-run lost its delta this way.
+- **Clear `~/Library/Caches/Sparkle_generate_appcast` before every release
+  run** — not just re-runs. Stale cache entries make `generate_appcast`
+  silently emit appcast delta entries whose files don't exist, or skip delta
+  creation entirely (exit 0, no warning). v1.1.0's re-run lost its delta this
+  way; v1.2.0's *first* run referenced a `K-Dex3-1.delta` it never wrote.
+- **Upload every `K-Dex*.delta` the run produced.** The appcast references a
+  delta from each prior version to the new one (3→2 *and* 3→1), and each is a
+  release asset.
 - Keep the previous versions' DMGs in `build/`; the generator scans the
   directory to keep older appcast entries and to compute deltas from them.
   After a from-scratch regeneration, check the *old* entries' URLs — the
