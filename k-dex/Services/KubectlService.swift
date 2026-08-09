@@ -142,6 +142,13 @@ nonisolated enum Kubectl {
         })
     }
 
+    /// Full CRD definition (schema included) for one custom kind, whose id
+    /// ("plural.group") is exactly the CRD object's name.
+    static func crdDefinition(id: String, context: String) async throws -> JSONValue {
+        let result = try await Commands.runner.runChecked("kubectl", ["get", "crd", id, "-o", "json", "--context", context])
+        return try KubeJSON.decode(result.stdout)
+    }
+
     static func fetchYAML(kind: ResourceKind, name: String, namespace: String?, context: String) async throws -> String {
         var args = ["get", kind.cliName, name, "-o", "yaml", "--context", context]
         if kind.isNamespaced, let namespace { args += ["-n", namespace] }
