@@ -34,16 +34,40 @@
 2. `scripts/release.sh` — builds, signs, notarizes, staples; prints the DMG
    sha256.
 3. Tag and publish — the appcast **must** ship as a release asset alongside
-   the DMG (the app's feed URL is
-   `releases/latest/download/appcast.xml`):
+   the DMG, and so must any `*.delta` files `generate_appcast` produced (the
+   appcast references them; Sparkle falls back to the full DMG if a delta 404s,
+   but that wastes the point of deltas):
 
    ```sh
    git tag v<version> && git push --tags
-   gh release create v<version> build/K-Dex-<version>.dmg build/appcast.xml \
-     --title "K-Dex <version>"
+   gh release create v<version> build/K-Dex-<version>.dmg build/*.delta \
+     build/appcast.xml --title "K-Dex <version>"
    ```
 
-4. Update the cask in the tap: `version` + `sha256`.
+4. **Mark the release "Latest" explicitly.** This is not cosmetic: the app's
+   feed URL is `releases/latest/download/appcast.xml`, so whichever release
+   holds the Latest label is the one serving the appcast to every installed
+   copy. GitHub's "None" label can leave the *previous* release marked Latest
+   — v1.1.0 shipped with stale-feed Sparkle until the label was fixed by hand.
+5. Update the cask in the tap: `version` + `sha256`.
+
+## Re-running a release
+
+`release.sh` is idempotent — but each run produces a byte-different DMG, so
+the DMG, deltas, appcast, and cask sha are **one atomic set**: publish them
+from a single run, never mixed across runs.
+
+- **Clear `~/Library/Caches/Sparkle_generate_appcast` before a re-run.**
+  Stale cache entries make `generate_appcast` silently skip delta creation
+  (exit 0, no warning) — v1.1.0's re-run lost its delta this way.
+- Keep the previous versions' DMGs in `build/`; the generator scans the
+  directory to keep older appcast entries and to compute deltas from them.
+  After a from-scratch regeneration, check the *old* entries' URLs — the
+  `--download-url-prefix` is applied to every item, so old DMG URLs need
+  pointing back at their own release tags.
+- A one-off `codesign --verify` failure naming a `.cstemp` file is a known
+  transient race inside codesign (same family as the retried
+  `errSecInternalComponent`) — just re-run the script.
 
 ## Notes
 
