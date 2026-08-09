@@ -93,7 +93,7 @@ struct HelmListView: View {
                 ContentUnavailableView(
                     "No Helm Releases",
                     systemImage: "shippingbox",
-                    description: Text("No Helm 3 releases were found in this scope.")
+                    description: Text("No Helm releases were found in this scope.")
                 )
             }
         }
