@@ -96,6 +96,36 @@ struct ServiceFixtureTests {
         #expect(runner.calls == [["kubectl", "get", "pods", "-o", "json", "--context", "test", "-n", "demo"]])
     }
 
+    /// Batch actions: one kubectl call for a whole namespace group, never a
+    /// subprocess per object (round 3, B1).
+    @Test func batchDeleteIsOneInvocation() async throws {
+        let runner = FixtureRunner { _ in ok("") }
+        try await withRunner(runner) {
+            try await Kubectl.delete(kind: .pods, names: ["a", "b", "c"], namespace: "demo", context: "test")
+        }
+        #expect(runner.calls == [["kubectl", "delete", "pods", "a", "b", "c", "--context", "test", "-n", "demo"]])
+    }
+
+    @Test func batchRestartIsOneInvocation() async throws {
+        let runner = FixtureRunner { _ in ok("") }
+        try await withRunner(runner) {
+            try await Kubectl.rolloutRestart(kind: .deployments, names: ["x", "y"], namespace: "demo", context: "test")
+        }
+        #expect(runner.calls == [[
+            "kubectl", "rollout", "restart",
+            "deployments.apps/x", "deployments.apps/y",
+            "--context", "test", "-n", "demo",
+        ]])
+    }
+
+    @Test func emptyBatchSpawnsNothing() async throws {
+        let runner = FixtureRunner { _ in ok("") }
+        try await withRunner(runner) {
+            try await Kubectl.delete(kind: .pods, names: [], namespace: "demo", context: "test")
+        }
+        #expect(runner.calls.isEmpty)
+    }
+
     @Test func scaleBuildsTheExpectedInvocation() async throws {
         let runner = FixtureRunner { _ in ok("") }
         try await withRunner(runner) {
