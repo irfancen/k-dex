@@ -330,6 +330,10 @@ private struct DetailPanelModifier<Panel: View>: ViewModifier {
 
     @AppStorage("detail-panel-width") private var panelWidth = 440.0
     @State private var dragStartWidth: Double?
+    /// Live width during a drag. @State, not @AppStorage: writing defaults on
+    /// every mouse-move frame re-evaluated the entire window (Table included)
+    /// per frame; the persisted value commits once, on drag end.
+    @State private var dragWidth: Double?
 
     private static var minWidth: Double { 330 }
 
@@ -345,7 +349,7 @@ private struct DetailPanelModifier<Panel: View>: ViewModifier {
                         HStack(spacing: 0) {
                             splitter(totalWidth: geo.size.width)
                             panel()
-                                .frame(width: clamped(panelWidth, totalWidth: geo.size.width))
+                                .frame(width: clamped(dragWidth ?? panelWidth, totalWidth: geo.size.width))
                                 .frame(maxHeight: .infinity)
                         }
                         .background(.regularMaterial)
@@ -387,10 +391,13 @@ private struct DetailPanelModifier<Panel: View>: ViewModifier {
                     .onChanged { value in
                         if dragStartWidth == nil { dragStartWidth = panelWidth }
                         let proposed = (dragStartWidth ?? panelWidth) - Double(value.translation.width)
-                        panelWidth = clamped(proposed, totalWidth: totalWidth)
+                        dragWidth = clamped(proposed, totalWidth: totalWidth)
                     }
                     .onEnded { value in
                         let proposed = (dragStartWidth ?? panelWidth) - Double(value.translation.width)
+                        // Persist once per drag, not once per frame.
+                        panelWidth = clamped(proposed, totalWidth: totalWidth)
+                        dragWidth = nil
                         dragStartWidth = nil
                         // Dragging well past the minimum closes the panel.
                         if proposed < Self.minWidth - 70 {
