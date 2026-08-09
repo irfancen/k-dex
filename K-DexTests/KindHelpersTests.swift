@@ -85,4 +85,14 @@ struct KindHelpersTests {
         let node = try object(#"{"metadata":{"name":"node-1"}}"#)
         #expect(KindHelpers.nodeCapacityDetail(node, resource: "cpu") == nil)
     }
+
+    /// The `.text(…)` column factory: strings verbatim, numbers via
+    /// displayString, missing paths as empty text.
+    @Test func textColumnFactoryWalksJSONPaths() throws {
+        let obj = try object(#"{"metadata":{"name":"x"},"spec":{"type":"ClusterIP","replicas":3}}"#)
+        let ctx = RowContext()
+        #expect(ColumnSpec.text("Type", "spec", "type").cell(obj, ctx).text == "ClusterIP")
+        #expect(ColumnSpec.text("Replicas", "spec", "replicas").cell(obj, ctx).text == "3")
+        #expect(ColumnSpec.text("Missing", "spec", "nope").cell(obj, ctx).text == "")
+    }
 }

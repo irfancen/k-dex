@@ -51,7 +51,7 @@ nonisolated extension ResourceKind {
 
     private static func bindingColumns() -> [ColumnSpec] {
         [
-            ColumnSpec("Role", ideal: 180) { obj, _ in obj.raw["roleRef"]["name"].stringValue },
+            .text("Role", ideal: 180, "roleRef", "name"),
             ColumnSpec("Subjects", ideal: 200) { obj, _ in
                 obj.raw["subjects"].array.map { "\($0["kind"].stringValue)/\($0["name"].stringValue)" }.joined(separator: ", ")
             },
@@ -113,7 +113,7 @@ nonisolated extension ResourceKind {
                 ColumnSpec("Memory", ideal: 165, max: 205, style: .usage) { obj, ctx in
                     KindHelpers.podUsageCell(obj, ctx, resource: "memory")
                 },
-                ColumnSpec("Node", ideal: 140) { obj, _ in obj.raw["spec"]["nodeName"].stringValue },
+                .text("Node", ideal: 140, "spec", "nodeName"),
             ])
 
         t[deployments.id] = KindEnrichment(
@@ -180,7 +180,7 @@ nonisolated extension ResourceKind {
         t[cronJobs.id] = KindEnrichment(
             displayName: "Cron Jobs", icon: "calendar.badge.clock", category: .workloads,
             columns: [
-                ColumnSpec("Schedule", ideal: 100, max: 140) { obj, _ in obj.raw["spec"]["schedule"].stringValue },
+                .text("Schedule", ideal: 100, max: 140, "spec", "schedule"),
                 ColumnSpec("Suspend", ideal: 60, max: 80) { obj, _ in (obj.raw["spec"]["suspend"].bool ?? false) ? "true" : "false" },
                 ColumnSpec("Active", ideal: 50, max: 70) { obj, _ in String(obj.raw["status"]["active"].array.count) },
                 ColumnSpec("Last Run", ideal: 70, max: 90) { obj, ctx in
@@ -193,15 +193,15 @@ nonisolated extension ResourceKind {
             visibleByDefault: false,
             columns: [
                 ColumnSpec("Controller", ideal: 200) { obj, _ in obj.controlledBy ?? "" },
-                ColumnSpec("Revision", ideal: 62, max: 82) { obj, _ in obj.raw["revision"].displayString },
+                .text("Revision", ideal: 62, max: 82, "revision"),
             ])
 
         t[services.id] = KindEnrichment(
             displayName: "Services", icon: "network", category: .network,
             supportsPortForward: true,
             columns: [
-                ColumnSpec("Type", ideal: 100, max: 130) { obj, _ in obj.raw["spec"]["type"].stringValue },
-                ColumnSpec("Cluster IP", ideal: 110, max: 150) { obj, _ in obj.raw["spec"]["clusterIP"].stringValue },
+                .text("Type", ideal: 100, max: 130, "spec", "type"),
+                .text("Cluster IP", ideal: 110, max: 150, "spec", "clusterIP"),
                 ColumnSpec("External IP", ideal: 110, max: 170) { obj, _ in KindHelpers.serviceExternalIP(obj) },
                 ColumnSpec("Ports", ideal: 140) { obj, _ in KindHelpers.servicePorts(obj) },
             ])
@@ -209,7 +209,7 @@ nonisolated extension ResourceKind {
         t[ingresses.id] = KindEnrichment(
             displayName: "Ingresses", icon: "arrow.triangle.branch", category: .network,
             columns: [
-                ColumnSpec("Class", ideal: 90, max: 130) { obj, _ in obj.raw["spec"]["ingressClassName"].stringValue },
+                .text("Class", ideal: 90, max: 130, "spec", "ingressClassName"),
                 ColumnSpec("Hosts", ideal: 180) { obj, _ in
                     let hosts = obj.raw["spec"]["rules"].array.map { $0["host"].stringValue.isEmpty ? "*" : $0["host"].stringValue }
                     return hosts.joined(separator: ", ")
@@ -224,7 +224,7 @@ nonisolated extension ResourceKind {
         t[ingressClasses.id] = KindEnrichment(
             displayName: "Ingress Classes", icon: "signpost.right", category: .network,
             columns: [
-                ColumnSpec("Controller", ideal: 220) { obj, _ in obj.raw["spec"]["controller"].stringValue },
+                .text("Controller", ideal: 220, "spec", "controller"),
                 ColumnSpec("Default", ideal: 55, max: 75) { obj, _ in
                     obj.annotations["ingressclass.kubernetes.io/is-default-class"] == "true" ? "✓" : ""
                 },
@@ -233,7 +233,7 @@ nonisolated extension ResourceKind {
         t[endpointSlices.id] = KindEnrichment(
             displayName: "Endpoint Slices", icon: "point.3.connected.trianglepath.dotted", category: .network,
             columns: [
-                ColumnSpec("Address Type", ideal: 98, max: 122) { obj, _ in obj.raw["addressType"].stringValue },
+                .text("Address Type", ideal: 98, max: 122, "addressType"),
                 ColumnSpec("Endpoints", ideal: 70, max: 90) { obj, _ in String(obj.raw["endpoints"].array.count) },
                 ColumnSpec("Ports", ideal: 120) { obj, _ in
                     obj.raw["ports"].array.map { "\($0["port"].displayString)/\($0["protocol"].stringValue)" }.joined(separator: ", ")
@@ -259,7 +259,7 @@ nonisolated extension ResourceKind {
         t[secrets.id] = KindEnrichment(
             displayName: "Secrets", icon: "key", category: .config,
             columns: [
-                ColumnSpec("Type", ideal: 200) { obj, _ in obj.raw["type"].stringValue },
+                .text("Type", ideal: 200, "type"),
                 ColumnSpec("Keys", ideal: 50, max: 70) { obj, _ in String(obj.raw["data"].object.count) },
             ])
 
@@ -270,9 +270,9 @@ nonisolated extension ResourceKind {
                     let ref = obj.raw["spec"]["scaleTargetRef"]
                     return "\(ref["kind"].stringValue)/\(ref["name"].stringValue)"
                 },
-                ColumnSpec("Min", ideal: 45, max: 60) { obj, _ in obj.raw["spec"]["minReplicas"].displayString },
-                ColumnSpec("Max", ideal: 45, max: 60) { obj, _ in obj.raw["spec"]["maxReplicas"].displayString },
-                ColumnSpec("Replicas", ideal: 70, max: 90) { obj, _ in obj.raw["status"]["currentReplicas"].displayString },
+                .text("Min", ideal: 45, max: 60, "spec", "minReplicas"),
+                .text("Max", ideal: 45, max: 60, "spec", "maxReplicas"),
+                .text("Replicas", ideal: 70, max: 90, "status", "currentReplicas"),
             ])
 
         t[podDisruptionBudgets.id] = KindEnrichment(
@@ -324,7 +324,7 @@ nonisolated extension ResourceKind {
             displayName: "Priority Classes", icon: "flag", category: .config,
             visibleByDefault: false,
             columns: [
-                ColumnSpec("Value", ideal: 100, max: 130) { obj, _ in obj.raw["value"].displayString },
+                .text("Value", ideal: 100, max: 130, "value"),
                 ColumnSpec("Global Default", ideal: 96, max: 116) { obj, _ in
                     (obj.raw["globalDefault"].bool ?? false) ? "true" : "false"
                 },
@@ -349,18 +349,18 @@ nonisolated extension ResourceKind {
                         tone: KindHelpers.pvcTone(obj)
                     )
                 },
-                ColumnSpec("Volume", ideal: 160) { obj, _ in obj.raw["spec"]["volumeName"].stringValue },
-                ColumnSpec("Capacity", ideal: 70, max: 90) { obj, _ in obj.raw["status"]["capacity"]["storage"].stringValue },
+                .text("Volume", ideal: 160, "spec", "volumeName"),
+                .text("Capacity", ideal: 70, max: 90, "status", "capacity", "storage"),
                 ColumnSpec("Access", ideal: 70, max: 100) { obj, _ in KindHelpers.accessModes(obj.raw["spec"]["accessModes"]) },
-                ColumnSpec("Class", ideal: 100, max: 140) { obj, _ in obj.raw["spec"]["storageClassName"].stringValue },
+                .text("Class", ideal: 100, max: 140, "spec", "storageClassName"),
             ])
 
         t[persistentVolumes.id] = KindEnrichment(
             displayName: "Volumes", icon: "internaldrive", category: .storage,
             columns: [
-                ColumnSpec("Capacity", ideal: 70, max: 90) { obj, _ in obj.raw["spec"]["capacity"]["storage"].stringValue },
+                .text("Capacity", ideal: 70, max: 90, "spec", "capacity", "storage"),
                 ColumnSpec("Access", ideal: 70, max: 100) { obj, _ in KindHelpers.accessModes(obj.raw["spec"]["accessModes"]) },
-                ColumnSpec("Reclaim", ideal: 70, max: 90) { obj, _ in obj.raw["spec"]["persistentVolumeReclaimPolicy"].stringValue },
+                .text("Reclaim", ideal: 70, max: 90, "spec", "persistentVolumeReclaimPolicy"),
                 ColumnSpec("Status", ideal: 80, max: 110, style: .badge) { obj, _ in
                     Cell(text: obj.raw["status"]["phase"].stringValue, tone: KindHelpers.pvTone(obj))
                 },
@@ -374,9 +374,9 @@ nonisolated extension ResourceKind {
         t[storageClasses.id] = KindEnrichment(
             displayName: "Storage Classes", icon: "archivebox", category: .storage,
             columns: [
-                ColumnSpec("Provisioner", ideal: 200) { obj, _ in obj.raw["provisioner"].stringValue },
-                ColumnSpec("Reclaim", ideal: 70, max: 90) { obj, _ in obj.raw["reclaimPolicy"].stringValue },
-                ColumnSpec("Binding", ideal: 130, max: 160) { obj, _ in obj.raw["volumeBindingMode"].stringValue },
+                .text("Provisioner", ideal: 200, "provisioner"),
+                .text("Reclaim", ideal: 70, max: 90, "reclaimPolicy"),
+                .text("Binding", ideal: 130, max: 160, "volumeBindingMode"),
                 ColumnSpec("Default", ideal: 55, max: 75) { obj, _ in
                     obj.annotations["storageclass.kubernetes.io/is-default-class"] == "true" ? "✓" : ""
                 },
@@ -398,8 +398,8 @@ nonisolated extension ResourceKind {
             displayName: "CSRs", icon: "signature", category: .access,
             visibleByDefault: false,
             columns: [
-                ColumnSpec("Signer", ideal: 220) { obj, _ in obj.raw["spec"]["signerName"].stringValue },
-                ColumnSpec("Requestor", ideal: 160) { obj, _ in obj.raw["spec"]["username"].stringValue },
+                .text("Signer", ideal: 220, "spec", "signerName"),
+                .text("Requestor", ideal: 160, "spec", "username"),
                 ColumnSpec("Status", ideal: 110, max: 140, style: .badge) { obj, _ in
                     let (text, tone) = KindHelpers.csrStatus(obj)
                     return Cell(text: text, tone: tone)
@@ -414,7 +414,7 @@ nonisolated extension ResourceKind {
                     return Cell(text: text, tone: tone)
                 },
                 ColumnSpec("Roles", ideal: 110, max: 160) { obj, _ in KindHelpers.nodeRoles(obj) },
-                ColumnSpec("Version", ideal: 90, max: 130) { obj, _ in obj.raw["status"]["nodeInfo"]["kubeletVersion"].stringValue },
+                .text("Version", ideal: 90, max: 130, "status", "nodeInfo", "kubeletVersion"),
                 // Wider than the workload columns: node text carries a
                 // percent suffix ("888m (88%)") beside the same bar rail.
                 ColumnSpec("CPU", ideal: 195, max: 235, style: .usage) { obj, ctx in
@@ -455,21 +455,21 @@ nonisolated extension ResourceKind {
                     let type = obj.raw["type"].stringValue
                     return Cell(text: type, tone: type == "Warning" ? .warn : .neutral)
                 },
-                ColumnSpec("Reason", ideal: 120, max: 170) { obj, _ in obj.raw["reason"].stringValue },
+                .text("Reason", ideal: 120, max: 170, "reason"),
                 ColumnSpec("Object", ideal: 170) { obj, _ in
                     let involved = obj.raw["involvedObject"]
                     return "\(involved["kind"].stringValue)/\(involved["name"].stringValue)"
                 },
-                ColumnSpec("Message", min: 200, ideal: 380) { obj, _ in obj.raw["message"].stringValue },
-                ColumnSpec("Count", ideal: 50, max: 70) { obj, _ in obj.raw["count"].displayString },
+                .text("Message", min: 200, ideal: 380, "message"),
+                .text("Count", ideal: 50, max: 70, "count"),
             ])
 
         t[customResourceDefinitions.id] = KindEnrichment(
             displayName: "CRDs", icon: "puzzlepiece", category: .cluster,
             columns: [
-                ColumnSpec("Group", ideal: 190) { obj, _ in obj.raw["spec"]["group"].stringValue },
-                ColumnSpec("Kind", ideal: 140) { obj, _ in obj.raw["spec"]["names"]["kind"].stringValue },
-                ColumnSpec("Scope", ideal: 86, max: 106) { obj, _ in obj.raw["spec"]["scope"].stringValue },
+                .text("Group", ideal: 190, "spec", "group"),
+                .text("Kind", ideal: 140, "spec", "names", "kind"),
+                .text("Scope", ideal: 86, max: 106, "spec", "scope"),
                 ColumnSpec("Version", ideal: 64, max: 84) { obj, _ in
                     obj.raw["spec"]["versions"].array.first { $0["storage"].bool == true }?["name"].string ?? ""
                 },
@@ -479,7 +479,7 @@ nonisolated extension ResourceKind {
             displayName: "Leases", icon: "clock.badge.checkmark", category: .cluster,
             visibleByDefault: false,
             columns: [
-                ColumnSpec("Holder", ideal: 240) { obj, _ in obj.raw["spec"]["holderIdentity"].stringValue },
+                .text("Holder", ideal: 240, "spec", "holderIdentity"),
                 ColumnSpec("Renewed", ideal: 80, max: 104) { obj, ctx in
                     guard let date = Fmt.parseDate(obj.raw["spec"]["renewTime"].string) else { return "–" }
                     return Fmt.age(date, relativeTo: ctx.now) + " ago"
@@ -490,7 +490,7 @@ nonisolated extension ResourceKind {
             displayName: "Runtime Classes", icon: "cpu", category: .cluster,
             visibleByDefault: false,
             columns: [
-                ColumnSpec("Handler", ideal: 140) { obj, _ in obj.raw["handler"].stringValue },
+                .text("Handler", ideal: 140, "handler"),
             ])
 
         // MARK: Deprecated / legacy core kinds — live in Other, visible by

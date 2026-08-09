@@ -84,6 +84,23 @@ nonisolated struct ColumnSpec: Identifiable, Sendable {
             Cell(text: value(object, ctx))
         }
     }
+
+    /// Column whose cell is one JSON-path lookup — the dominant shape in the
+    /// enrichment table. `path` walks `object.raw`; strings render verbatim,
+    /// numbers and bools via `displayString`, missing values as "".
+    static func text(
+        _ title: String,
+        min: CGFloat? = nil,
+        ideal: CGFloat? = nil,
+        max: CGFloat? = nil,
+        _ path: String...
+    ) -> ColumnSpec {
+        ColumnSpec(title, min: min, ideal: ideal, max: max) { object, _ in
+            var value = object.raw
+            for key in path { value = value[key] }
+            return value.displayString
+        }
+    }
 }
 
 /// Type-aware table sorting: key extraction and comparison. Outside the view
