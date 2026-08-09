@@ -34,7 +34,7 @@ struct ResourceListView: View {
 
     var body: some View {
         @Bindable var model = model
-        let rowContext = model.rowContext
+        let rowContext = model.listRowContext
         let rows = sortedRows(model.filteredObjects, rowContext)
         let showNamespace = kind.isNamespaced && model.selectedNamespace == nil
         let namespaceColumn = ColumnSpec("Namespace", ideal: 110, max: 180) { object, _ in object.namespace }
@@ -58,11 +58,17 @@ struct ResourceListView: View {
                         case .usage:
                             UsageBar(text: cell.text, usage: cell.usage, fallback: cell.fallback, detail: cell.detail)
                         case .plain:
-                            Text(cell.text)
-                                .monospacedDigit()
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                                .foregroundStyle(column.title == "Age" || column.title == "Namespace" ? .secondary : .primary)
+                            // Relative-time cells tick themselves: a
+                            // per-cell TimelineView updates the text without
+                            // re-rendering the table (a whole-table 1 Hz
+                            // re-render raced selection clicks).
+                            if column.title == "Age" || column.title == "Last Restart" {
+                                TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                                    plainCellText(tickedText(column: column, object: object, base: rowContext, now: timeline.date), column: column)
+                                }
+                            } else {
+                                plainCellText(cell.text, column: column)
+                            }
                         }
                     }
                     .frame(height: TableMetrics.rowHeight, alignment: .leading)
@@ -305,6 +311,20 @@ struct ResourceListView: View {
 
     private var hasUsageColumns: Bool {
         kind.columns.contains { $0.style == .usage }
+    }
+
+    private func tickedText(column: ColumnSpec, object: KubeObject, base: RowContext, now: Date) -> String {
+        var ctx = base
+        ctx.now = now
+        return column.cell(object, ctx).text
+    }
+
+    private func plainCellText(_ text: String, column: ColumnSpec) -> some View {
+        Text(text)
+            .monospacedDigit()
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .foregroundStyle(column.title == "Age" || column.title == "Namespace" ? .secondary : .primary)
     }
 
     private var inspectorPresented: Binding<Bool> {
