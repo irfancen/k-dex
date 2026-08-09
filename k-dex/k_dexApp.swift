@@ -36,8 +36,17 @@ struct KDexApp: App {
                 }
             }
             CommandGroup(after: .toolbar) {
-                Button("Refresh") { model.requestRefresh() }
-                    .keyboardShortcut("r", modifiers: .command)
+                // On the cluster picker, refresh means "re-read the
+                // kubeconfig" — requestRefresh() is a no-op before connect,
+                // which read as ⌘R doing nothing on that screen.
+                Button("Refresh") {
+                    if case .ready = model.bootState {
+                        model.requestRefresh()
+                    } else {
+                        Task { await model.reloadContexts() }
+                    }
+                }
+                .keyboardShortcut("r", modifiers: .command)
             }
         }
 

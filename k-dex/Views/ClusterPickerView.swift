@@ -30,7 +30,10 @@ struct ClusterPickerView: View {
             .padding(.top, 44)
             .padding(.bottom, 18)
 
-            if model.contexts.count > 6 {
+            // Also shown while a query is active: a reload can drop the
+            // context count below the threshold, and hiding the field then
+            // would leave the list filtered with no way to clear it.
+            if model.contexts.count > 6 || !query.isEmpty {
                 TextField("Filter clusters…", text: $query)
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 300)
@@ -65,8 +68,10 @@ struct ClusterPickerView: View {
 
             Divider()
             HStack {
+                // ⌘R reaches here through the menu-bar Refresh command,
+                // which dispatches on bootState — a second binding here
+                // would collide with it.
                 Button("Reload") { Task { await model.reloadContexts() } }
-                    .keyboardShortcut("r", modifiers: .command)
                     .help("Re-read the kubeconfig (⌘R)")
                 Spacer()
                 SettingsLink { Text("Settings…") }
@@ -77,12 +82,17 @@ struct ClusterPickerView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // Kubeconfig edits (new clusters, removed ones) show up on their own
-        // while the picker is visible; cancelled automatically on disappear.
+        // while the picker is visible: a file watch, not subprocess polling —
+        // immediate on change, idle otherwise. Torn down on disappear.
         .task {
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(3))
-                await model.reloadContexts()
+            let monitor = FileChangeMonitor(path: KubeconfigLocation.path) {
+                Task { await model.reloadContexts() }
             }
+            monitor.start()
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(3600))
+            }
+            monitor.stop()
         }
     }
 }

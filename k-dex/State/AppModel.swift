@@ -165,10 +165,14 @@ final class AppModel {
         sidebarSelection = .overview
         clearData()
         bootState = .ready
+        // Outside the Task: installed inside it, a disconnect during
+        // loadNamespaces would cancel the timer and then have this stale
+        // continuation install a fresh one that outlives the connection.
+        startAutoRefresh()
         Task {
             await self.loadNamespaces()
+            guard case .ready = self.bootState else { return } // disconnected mid-connect
             self.requestRefresh()
-            self.startAutoRefresh()
             await self.loadKindCatalog()
         }
         Task { await self.checkKubectlVersion() }
