@@ -4,10 +4,12 @@ struct ResourceListView: View {
     @Environment(AppModel.self) private var model
     let kind: ResourceKind
 
-    @State private var deleteCandidate: KubeObject?
+    /// Arrays: batch delete/restart act on the whole selection; single-row
+    /// actions are one-element batches through the same dialogs.
+    @State private var deleteCandidates: [KubeObject] = []
     @State private var scaleCandidate: KubeObject?
     @State private var forwardCandidate: KubeObject?
-    @State private var restartCandidate: KubeObject?
+    @State private var restartCandidates: [KubeObject] = []
     @State private var showCreateSheet = false
     @State private var sortOrder: [ColumnSort] = []
     // Persists user-resized/reordered/hidden columns per resource kind.
@@ -38,7 +40,7 @@ struct ResourceListView: View {
         let namespaceColumn = ColumnSpec("Namespace", ideal: 110, max: 180) { object, _ in object.namespace }
         let columns = showNamespace ? [namespaceColumn] + kind.columns : kind.columns
 
-        Table(rows, selection: $model.selectedObjectID, sortOrder: $sortOrder, columnCustomization: $columnCustomization) {
+        Table(rows, selection: $model.selectedObjectIDs, sortOrder: $sortOrder, columnCustomization: $columnCustomization) {
             TableColumn("Name", sortUsing: ColumnSort(id: "name")) { object in
                 NameCell(object: object, kind: kind)
             }
@@ -81,9 +83,12 @@ struct ResourceListView: View {
         .onChange(of: sortOrder) {
             storedSort = sortOrder.first.map { "\($0.id)|\($0.order == .reverse ? "reverse" : "forward")" } ?? ""
         }
-        .onExitCommand { model.selectedObjectID = nil }
+        .onExitCommand { model.selectedObjectIDs = [] }
         .contextMenu(forSelectionType: String.self) { ids in
-            if let object = rows.first(where: { ids.contains($0.id) }) {
+            let selected = rows.filter { ids.contains($0.id) }
+            if selected.count > 1 {
+                batchMenu(for: selected)
+            } else if let object = selected.first {
                 rowMenu(for: object)
             }
         }
@@ -147,10 +152,10 @@ struct ResourceListView: View {
                 ResourceDetailView(
                     object: object,
                     kind: kind,
-                    onDelete: kind.supportsDelete ? { deleteCandidate = object } : nil,
+                    onDelete: kind.supportsDelete ? { deleteCandidates = [object] } : nil,
                     onScale: kind.supportsScale ? { scaleCandidate = object } : nil,
                     onForward: kind.supportsPortForward ? { forwardCandidate = object } : nil,
-                    onRestart: kind.supportsRestart ? { restartCandidate = object } : nil
+                    onRestart: kind.supportsRestart ? { restartCandidates = [object] } : nil
                 )
             }
         }
@@ -177,33 +182,37 @@ struct ResourceListView: View {
         .navigationTitle(kind.displayName)
         .navigationSubtitle(scopeDescription)
         .confirmationDialog(
-            "Delete \(deleteCandidate?.name ?? "resource")?",
-            isPresented: Binding(get: { deleteCandidate != nil }, set: { if !$0 { deleteCandidate = nil } })
+            deleteCandidates.count == 1
+                ? "Delete \(deleteCandidates.first?.name ?? "resource")?"
+                : "Delete \(deleteCandidates.count) \(kind.displayName)?",
+            isPresented: Binding(get: { !deleteCandidates.isEmpty }, set: { if !$0 { deleteCandidates = [] } })
         ) {
-            Button("Delete", role: .destructive) {
-                if let object = deleteCandidate {
+            Button(deleteCandidates.count == 1 ? "Delete" : "Delete \(deleteCandidates.count)", role: .destructive) {
+                for object in deleteCandidates {
                     model.deleteObject(object, kind: kind)
-                    if model.selectedObjectID == object.id { model.selectedObjectID = nil }
                 }
-                deleteCandidate = nil
+                model.selectedObjectIDs.subtract(deleteCandidates.map(\.id))
+                deleteCandidates = []
             }
         } message: {
             // Verbatim: cluster-supplied names must render literally, and in
             // a multi-cluster tool "the cluster" is never specific enough.
-            Text(verbatim: deleteMessage(for: deleteCandidate))
+            Text(verbatim: deleteMessage(for: deleteCandidates))
         }
         .confirmationDialog(
-            "Restart \(restartCandidate?.name ?? "workload")?",
-            isPresented: Binding(get: { restartCandidate != nil }, set: { if !$0 { restartCandidate = nil } })
+            restartCandidates.count == 1
+                ? "Restart \(restartCandidates.first?.name ?? "workload")?"
+                : "Restart \(restartCandidates.count) \(kind.displayName)?",
+            isPresented: Binding(get: { !restartCandidates.isEmpty }, set: { if !$0 { restartCandidates = [] } })
         ) {
-            Button("Rollout Restart") {
-                if let object = restartCandidate {
+            Button(restartCandidates.count == 1 ? "Rollout Restart" : "Rollout Restart \(restartCandidates.count)") {
+                for object in restartCandidates {
                     model.restartObject(object, kind: kind)
                 }
-                restartCandidate = nil
+                restartCandidates = []
             }
         } message: {
-            Text(verbatim: restartMessage(for: restartCandidate))
+            Text(verbatim: restartMessage(for: restartCandidates))
         }
         .sheet(item: $scaleCandidate) { object in
             ScaleSheet(object: object, kind: kind)
@@ -221,17 +230,56 @@ struct ResourceListView: View {
         }
     }
 
-    private func deleteMessage(for object: KubeObject?) -> String {
-        guard let object else { return "" }
-        var scope = object.namespace.isEmpty ? "" : " in namespace \(object.namespace)"
-        scope += " on context \(model.selectedContext)"
-        return "This deletes \(kind.kindName) \u{2068}\(object.name)\u{2069}\(scope) and cannot be undone."
+    private func deleteMessage(for objects: [KubeObject]) -> String {
+        if objects.count == 1, let object = objects.first {
+            var scope = object.namespace.isEmpty ? "" : " in namespace \(object.namespace)"
+            scope += " on context \(model.selectedContext)"
+            return "This deletes \(kind.kindName) \u{2068}\(object.name)\u{2069}\(scope) and cannot be undone."
+        }
+        guard !objects.isEmpty else { return "" }
+        return "This deletes \(batchList(objects)) on context \(model.selectedContext) and cannot be undone."
     }
 
-    private func restartMessage(for object: KubeObject?) -> String {
-        guard let object else { return "" }
-        let scope = object.namespace.isEmpty ? "" : " in namespace \(object.namespace)"
-        return "This restarts every pod of \(kind.kindName) \u{2068}\(object.name)\u{2069}\(scope) on context \(model.selectedContext)."
+    /// "a, b, c and 2 more" with bidi isolation around each cluster name.
+    private func batchList(_ objects: [KubeObject]) -> String {
+        let names = objects.prefix(5).map { "\u{2068}\($0.name)\u{2069}" }.joined(separator: ", ")
+        let more = objects.count > 5 ? " and \(objects.count - 5) more" : ""
+        return "\(names)\(more)"
+    }
+
+    private func restartMessage(for objects: [KubeObject]) -> String {
+        if objects.count == 1, let object = objects.first {
+            let scope = object.namespace.isEmpty ? "" : " in namespace \(object.namespace)"
+            return "This restarts every pod of \(kind.kindName) \u{2068}\(object.name)\u{2069}\(scope) on context \(model.selectedContext)."
+        }
+        guard !objects.isEmpty else { return "" }
+        return "This restarts every pod of \(batchList(objects)) on context \(model.selectedContext)."
+    }
+
+    /// Context menu for a multi-row selection: only the actions that make
+    /// sense as a batch (scale, port-forward, logs, YAML are single-target).
+    @ViewBuilder
+    private func batchMenu(for objects: [KubeObject]) -> some View {
+        if kind.supportsRestart {
+            Button {
+                restartCandidates = objects
+            } label: {
+                Label("Restart \(objects.count) \(kind.displayName)", systemImage: "arrow.triangle.2.circlepath")
+            }
+        }
+        Button {
+            Pasteboard.copy(objects.map(\.name).joined(separator: "\n"))
+        } label: {
+            Label("Copy Names", systemImage: "doc.on.doc")
+        }
+        if kind.supportsDelete {
+            Divider()
+            Button(role: .destructive) {
+                deleteCandidates = objects
+            } label: {
+                Label("Delete \(objects.count) \(kind.displayName)", systemImage: "trash")
+            }
+        }
     }
 
     // MARK: Sorting
@@ -261,8 +309,8 @@ struct ResourceListView: View {
 
     private var inspectorPresented: Binding<Bool> {
         Binding(
-            get: { model.selectedObjectID != nil },
-            set: { if !$0 { model.selectedObjectID = nil } }
+            get: { model.selectedObject != nil },
+            set: { if !$0 { model.selectedObjectIDs = [] } }
         )
     }
 
@@ -301,7 +349,7 @@ struct ResourceListView: View {
         }
         if kind.supportsRestart {
             Button {
-                restartCandidate = object
+                restartCandidates = [object]
             } label: {
                 Label("Restart", systemImage: "arrow.triangle.2.circlepath")
             }
@@ -326,7 +374,7 @@ struct ResourceListView: View {
         if kind.supportsDelete {
             Divider()
             Button(role: .destructive) {
-                deleteCandidate = object
+                deleteCandidates = [object]
             } label: {
                 Label("Delete", systemImage: "trash")
             }

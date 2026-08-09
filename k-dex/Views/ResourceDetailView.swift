@@ -94,7 +94,7 @@ struct ResourceDetailView: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 8) {
                 Button {
-                    model.selectedObjectID = nil
+                    model.selectedObjectIDs = []
                 } label: {
                     Label("Close Details", systemImage: "xmark.circle.fill").labelStyle(.iconOnly)
                         .foregroundStyle(.secondary)
