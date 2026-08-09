@@ -86,8 +86,10 @@ nonisolated struct ColumnSpec: Identifiable, Sendable {
     }
 }
 
-/// Type-aware sort-value extraction for table sorting. Outside the view so
-/// the app's most subtle non-UI logic is testable.
+/// Type-aware table sorting: key extraction and comparison. Outside the view
+/// so the app's most subtle non-UI logic is testable — the comparator's
+/// strict-weak-ordering obligations in particular (see the ordering-law
+/// tests), which Swift's sorted(by:) violates *silently* when broken.
 nonisolated enum ColumnSorting {
     static func numericValue(_ text: String, columnID: String) -> Double? {
         guard let token = text.split(separator: " ").first.map(String.init), token != "–" else { return nil }
@@ -104,6 +106,61 @@ nonisolated enum ColumnSorting {
         // silently mis-sorts unrelated rows rather than trapping.
         if let plain = Double(token), plain.isFinite { return plain }
         return Quantity.memoryBytes(token) // catches "1Gi" capacities etc.
+    }
+
+    /// One pre-extracted key per row. Sorting is decorate–sort–undecorate:
+    /// cell extraction and quantity parsing run once per row here, never
+    /// inside the O(n log n) comparator.
+    struct SortKey {
+        var text = ""
+        var tieBreak = ""
+        var numeric: Double?
+        var date: Date?
+    }
+
+    static func sortKey(
+        columnID: String,
+        column: ColumnSpec?,
+        object: KubeObject,
+        kind: ResourceKind,
+        ctx: RowContext
+    ) -> SortKey {
+        switch columnID {
+        case "name":
+            return SortKey(text: object.name, tieBreak: object.namespace)
+        case "Namespace":
+            return SortKey(text: object.namespace, tieBreak: object.name)
+        case "Age":
+            return SortKey(date: kind.ageDate(object) ?? .distantPast)
+        case "Last Restart":
+            return SortKey(date: lastRestartDate(object, kind: kind, ctx: ctx) ?? .distantPast)
+        default:
+            guard let column else { return SortKey() }
+            let text = column.cell(object, ctx).text
+            return SortKey(text: text, numeric: numericValue(text, columnID: columnID))
+        }
+    }
+
+    static func lastRestartDate(_ object: KubeObject, kind: ResourceKind, ctx: RowContext) -> Date? {
+        if kind == .pods { return KindHelpers.podLastRestart(object) }
+        return ctx.workloadUsage["\(object.namespace)/\(object.name)"]?.lastRestart
+    }
+
+    static func compare(_ lhs: SortKey, _ rhs: SortKey) -> ComparisonResult {
+        if let left = lhs.date, let right = rhs.date {
+            // Ascending = newest first.
+            if left == right { return .orderedSame }
+            return left > right ? .orderedAscending : .orderedDescending
+        }
+        if let left = lhs.numeric, let right = rhs.numeric {
+            if left == right { return .orderedSame }
+            return left < right ? .orderedAscending : .orderedDescending
+        }
+        // Numeric rows sort before non-numeric ("–") so the ordering is total.
+        if lhs.numeric != nil { return .orderedAscending }
+        if rhs.numeric != nil { return .orderedDescending }
+        let result = lhs.text.localizedStandardCompare(rhs.text)
+        return result == .orderedSame ? lhs.tieBreak.localizedStandardCompare(rhs.tieBreak) : result
     }
 }
 

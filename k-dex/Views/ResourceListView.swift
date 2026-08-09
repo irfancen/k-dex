@@ -224,59 +224,13 @@ struct ResourceListView: View {
         let column = kind.columns.first { $0.id == sort.id } // resolved once
 
         let keyed = rows.map { object in
-            (row: object, key: sortKey(for: sort.id, column: column, object: object, ctx: ctx))
+            (row: object, key: ColumnSorting.sortKey(columnID: sort.id, column: column, object: object, kind: kind, ctx: ctx))
         }
         return keyed.sorted { lhs, rhs in
-            let result = Self.compare(lhs.key, rhs.key)
+            let result = ColumnSorting.compare(lhs.key, rhs.key)
             guard result != .orderedSame else { return false }
             return ascending ? result == .orderedAscending : result == .orderedDescending
         }.map(\.row)
-    }
-
-    private struct SortKey {
-        var text = ""
-        var tieBreak = ""
-        var numeric: Double?
-        var date: Date?
-    }
-
-    private func sortKey(for columnID: String, column: ColumnSpec?, object: KubeObject, ctx: RowContext) -> SortKey {
-        switch columnID {
-        case "name":
-            return SortKey(text: object.name, tieBreak: object.namespace)
-        case "Namespace":
-            return SortKey(text: object.namespace, tieBreak: object.name)
-        case "Age":
-            return SortKey(date: kind.ageDate(object) ?? .distantPast)
-        case "Last Restart":
-            return SortKey(date: lastRestartDate(object, ctx) ?? .distantPast)
-        default:
-            guard let column else { return SortKey() }
-            let text = column.cell(object, ctx).text
-            return SortKey(text: text, numeric: ColumnSorting.numericValue(text, columnID: columnID))
-        }
-    }
-
-    private nonisolated static func compare(_ lhs: SortKey, _ rhs: SortKey) -> ComparisonResult {
-        if let left = lhs.date, let right = rhs.date {
-            // Ascending = newest first.
-            if left == right { return .orderedSame }
-            return left > right ? .orderedAscending : .orderedDescending
-        }
-        if let left = lhs.numeric, let right = rhs.numeric {
-            if left == right { return .orderedSame }
-            return left < right ? .orderedAscending : .orderedDescending
-        }
-        // Numeric rows sort before non-numeric ("–") so the ordering is total.
-        if lhs.numeric != nil { return .orderedAscending }
-        if rhs.numeric != nil { return .orderedDescending }
-        let result = lhs.text.localizedStandardCompare(rhs.text)
-        return result == .orderedSame ? lhs.tieBreak.localizedStandardCompare(rhs.tieBreak) : result
-    }
-
-    private func lastRestartDate(_ object: KubeObject, _ ctx: RowContext) -> Date? {
-        if kind == .pods { return KindHelpers.podLastRestart(object) }
-        return ctx.workloadUsage["\(object.namespace)/\(object.name)"]?.lastRestart
     }
 
     private var hasUsageColumns: Bool {
