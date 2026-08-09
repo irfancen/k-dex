@@ -11,7 +11,7 @@ nonisolated enum Kubectl {
     // MARK: Contexts & namespaces
 
     static func contexts() async throws -> (current: String?, contexts: [KubeContext]) {
-        let result = try await ProcessRunner.runChecked("kubectl", ["config", "view", "-o", "json"])
+        let result = try await Commands.runner.runChecked("kubectl", ["config", "view", "-o", "json"])
         let root = try KubeJSON.decode(result.stdout)
         let contexts = root["contexts"].array.map { entry in
             KubeContext(
@@ -41,7 +41,7 @@ nonisolated enum Kubectl {
     static func list(kind: ResourceKind, context: String, namespace: String?) async throws -> [KubeObject] {
         var args = ["get", kind.cliName, "-o", "json", "--context", context]
         args += scopeArguments(kind: kind, namespace: namespace)
-        let result = try await ProcessRunner.runChecked("kubectl", args)
+        let result = try await Commands.runner.runChecked("kubectl", args)
         let data = result.stdout
         return try await Task.detached(priority: .userInitiated) {
             try KubeJSON.objects(fromListData: data)
@@ -53,7 +53,7 @@ nonisolated enum Kubectl {
     static func pods(matching selector: String, isFieldSelector: Bool = false, namespace: String?, context: String) async throws -> [KubeObject] {
         var args = ["get", "pods", isFieldSelector ? "--field-selector" : "-l", selector, "-o", "json", "--context", context]
         if let namespace, !namespace.isEmpty { args += ["-n", namespace] } else { args += ["--all-namespaces"] }
-        let result = try await ProcessRunner.runChecked("kubectl", args)
+        let result = try await Commands.runner.runChecked("kubectl", args)
         let data = result.stdout
         return try await Task.detached(priority: .userInitiated) {
             try KubeJSON.objects(fromListData: data)
@@ -68,7 +68,7 @@ nonisolated enum Kubectl {
     /// so a partially failed discovery never shrinks the catalog below it.
     static func discoverKinds(context: String) async throws -> [ResourceKind] {
         async let crdFetch = customResourceIDs(context: context)
-        let groupsResult = try await ProcessRunner.runChecked("kubectl", ["get", "--raw", "/apis", "--context", context])
+        let groupsResult = try await Commands.runner.runChecked("kubectl", ["get", "--raw", "/apis", "--context", context])
         let groups = try KubeJSON.decode(groupsResult.stdout)["groups"].array.compactMap { group -> (String, String)? in
             let name = group["name"].stringValue
             let version = group["preferredVersion"]["version"].stringValue
@@ -113,7 +113,7 @@ nonisolated enum Kubectl {
     /// One API group-version's listable resource kinds.
     private static func resourceList(group: String, version: String, crds: Set<String>, context: String) async throws -> [ResourceKind] {
         let path = group.isEmpty ? "/api/\(version)" : "/apis/\(group)/\(version)"
-        let result = try await ProcessRunner.runChecked("kubectl", ["get", "--raw", path, "--context", context])
+        let result = try await Commands.runner.runChecked("kubectl", ["get", "--raw", path, "--context", context])
         let root = try KubeJSON.decode(result.stdout)
         return root["resources"].array.compactMap { resource in
             let plural = resource["name"].stringValue
@@ -134,7 +134,7 @@ nonisolated enum Kubectl {
 
     /// ids ("plural.group") of CRD-backed kinds, for catalog marking.
     private static func customResourceIDs(context: String) async -> Set<String> {
-        guard let result = try? await ProcessRunner.runChecked("kubectl", ["get", "crds", "-o", "name", "--context", context]) else {
+        guard let result = try? await Commands.runner.runChecked("kubectl", ["get", "crds", "-o", "name", "--context", context]) else {
             return []
         }
         return Set(result.stdoutString.split(separator: "\n").compactMap { line in
@@ -145,7 +145,7 @@ nonisolated enum Kubectl {
     static func fetchYAML(kind: ResourceKind, name: String, namespace: String?, context: String) async throws -> String {
         var args = ["get", kind.cliName, name, "-o", "yaml", "--context", context]
         if kind.isNamespaced, let namespace { args += ["-n", namespace] }
-        let result = try await ProcessRunner.runChecked("kubectl", args)
+        let result = try await Commands.runner.runChecked("kubectl", args)
         return result.stdoutString
     }
 
@@ -157,7 +157,7 @@ nonisolated enum Kubectl {
             "-o", "json", "--context", context,
         ]
         if let namespace, !namespace.isEmpty { args += ["-n", namespace] } else { args += ["--all-namespaces"] }
-        let result = try await ProcessRunner.runChecked("kubectl", args)
+        let result = try await Commands.runner.runChecked("kubectl", args)
         let data = result.stdout
         let objects = try await Task.detached(priority: .userInitiated) {
             try KubeJSON.objects(fromListData: data)
@@ -170,24 +170,24 @@ nonisolated enum Kubectl {
     static func delete(kind: ResourceKind, name: String, namespace: String?, context: String) async throws {
         var args = ["delete", kind.cliName, name, "--context", context]
         if kind.isNamespaced, let namespace { args += ["-n", namespace] }
-        try await ProcessRunner.runChecked("kubectl", args)
+        try await Commands.runner.runChecked("kubectl", args)
     }
 
     static func rolloutRestart(kind: ResourceKind, name: String, namespace: String?, context: String) async throws {
         var args = ["rollout", "restart", "\(kind.cliName)/\(name)", "--context", context]
         if let namespace { args += ["-n", namespace] }
-        try await ProcessRunner.runChecked("kubectl", args)
+        try await Commands.runner.runChecked("kubectl", args)
     }
 
     static func scale(kind: ResourceKind, name: String, namespace: String?, replicas: Int, context: String) async throws {
         var args = ["scale", "\(kind.cliName)/\(name)", "--replicas", String(replicas), "--context", context]
         if let namespace { args += ["-n", namespace] }
-        try await ProcessRunner.runChecked("kubectl", args)
+        try await Commands.runner.runChecked("kubectl", args)
     }
 
     /// Applies an edited manifest; returns kubectl's confirmation output.
     static func apply(yaml: String, context: String) async throws -> String {
-        let result = try await ProcessRunner.runChecked(
+        let result = try await Commands.runner.runChecked(
             "kubectl",
             ["apply", "-f", "-", "--context", context],
             stdin: Data(yaml.utf8)
@@ -249,7 +249,7 @@ nonisolated enum Kubectl {
     static func podMetrics(context: String, namespace: String?) async throws -> [String: PodMetric] {
         let path = namespace.map { "/apis/metrics.k8s.io/v1beta1/namespaces/\($0)/pods" }
             ?? "/apis/metrics.k8s.io/v1beta1/pods"
-        let result = try await ProcessRunner.runChecked("kubectl", ["get", "--raw", path, "--context", context])
+        let result = try await Commands.runner.runChecked("kubectl", ["get", "--raw", path, "--context", context])
         let root = try KubeJSON.decode(result.stdout)
         var metrics: [String: PodMetric] = [:]
         for item in root["items"].array {
@@ -271,7 +271,7 @@ nonisolated enum Kubectl {
     /// Node usage; percent-of-allocatable is computed by the caller, which has
     /// the node objects (the metrics API doesn't include capacity).
     static func nodeMetrics(context: String) async throws -> [String: RawUsage] {
-        let result = try await ProcessRunner.runChecked(
+        let result = try await Commands.runner.runChecked(
             "kubectl",
             ["get", "--raw", "/apis/metrics.k8s.io/v1beta1/nodes", "--context", context]
         )

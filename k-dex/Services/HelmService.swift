@@ -13,7 +13,7 @@ nonisolated enum HelmService {
             "-o", "json", "--context", context,
         ]
         if let namespace { args += ["-n", namespace] } else { args += ["--all-namespaces"] }
-        let result = try await ProcessRunner.runChecked("kubectl", args)
+        let result = try await Commands.runner.runChecked("kubectl", args)
         let data = result.stdout
         let secrets = try await Task.detached(priority: .userInitiated) {
             try KubeJSON.decode(data)["items"].array

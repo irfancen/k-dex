@@ -209,7 +209,7 @@ final class AppModel {
     private func checkKubectlVersion() async {
         guard !didCheckKubectlVersion else { return }
         didCheckKubectlVersion = true
-        guard let result = try? await ProcessRunner.run("kubectl", ["version", "--client", "-o", "json"]),
+        guard let result = try? await Commands.runner.run("kubectl", ["version", "--client", "-o", "json"]),
               let root = try? KubeJSON.decode(result.stdout) else { return }
         let version = root["clientVersion"]["gitVersion"].stringValue
         let parts = version.trimmingCharacters(in: CharacterSet(charactersIn: "v")).split(separator: ".")
