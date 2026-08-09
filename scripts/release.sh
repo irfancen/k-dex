@@ -102,15 +102,23 @@ else
     echo "warning: Sparkle tools not found in DerivedData; skipping appcast"
 fi
 
-SHA256=$(shasum -a 256 "$DMG" | awk '{print $1}')
-echo "$SHA256  $DMG"
+# The cask bump must only run against the final artifact: stapling rewrites
+# the DMG in place, so a hash taken on the SKIP_NOTARIZE path can never match
+# what users download — and the cask is tracked, so a dry run would leave a
+# poisoned checksum waiting to be committed to the tap.
+if [ "${SKIP_NOTARIZE:-0}" = "1" ]; then
+    echo "==> Skipping cask bump (un-stapled DMG; hash would not match the release)"
+else
+    SHA256=$(shasum -a 256 "$DMG" | awk '{print $1}')
+    echo "$SHA256  $DMG"
 
-# Keep the cask template in sync; it still has to be copied to the tap repo.
-CASK=packaging/homebrew/k-dex.rb
-if [ -f "$CASK" ]; then
-    sed -i '' \
-        -e "s/^  version \".*\"/  version \"$VERSION\"/" \
-        -e "s/^  sha256 \".*\"/  sha256 \"$SHA256\"/" "$CASK"
-    echo "==> Updated $CASK — copy it to the tap repo (Casks/k-dex.rb)"
+    # Keep the cask template in sync; it still has to be copied to the tap repo.
+    CASK=packaging/homebrew/k-dex.rb
+    if [ -f "$CASK" ]; then
+        sed -i '' \
+            -e "s/^  version \".*\"/  version \"$VERSION\"/" \
+            -e "s/^  sha256 \".*\"/  sha256 \"$SHA256\"/" "$CASK"
+        echo "==> Updated $CASK — copy it to the tap repo (Casks/k-dex.rb)"
+    fi
 fi
 echo "==> Done: $DMG"
