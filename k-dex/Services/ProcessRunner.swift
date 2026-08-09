@@ -246,26 +246,9 @@ nonisolated enum ProcessRunner {
         }
     }
 
-    /// Runs a command and throws if it exits non-zero. kubectl warnings on
-    /// stderr are dropped from the error message so the real failure shows.
-    @discardableResult
-    static func runChecked(_ executable: String, _ arguments: [String], stdin: Data? = nil) async throws -> ProcessResult {
-        let result = try await run(executable, arguments, stdin: stdin)
-        try Task.checkCancellation()
-        guard result.exitCode == 0 else {
-            let stderr = result.stderrString
-            let errors = stderr
-                .split(separator: "\n")
-                .filter { !$0.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("warning:") }
-                .joined(separator: "\n")
-            throw ProcessError.failed(
-                command: executable,
-                exitCode: result.exitCode,
-                stderr: errors.isEmpty ? stderr : errors
-            )
-        }
-        return result
-    }
+    // runChecked lives on CommandRunning (CommandRunning.swift): services go
+    // through the Commands.runner seam, so the check-and-throw belongs to the
+    // protocol every runner shares, not to the system implementation.
 
     /// Launches a long-running command, delivering stdout line batches as they
     /// arrive. Returns the Process so the caller can terminate it.
