@@ -118,7 +118,16 @@ final class AppModel {
         return helmReleases.first { $0.id == selectedHelmID }
     }
 
-    var rowContext: RowContext {
+    /// Clock-driven context for the detail panel, whose re-render is cheap.
+    var rowContext: RowContext { makeRowContext(now: now) }
+
+    /// Context for the list body: identical, but built with a plain Date()
+    /// so reading it does NOT subscribe the whole table to the 1 Hz clock —
+    /// per-second full-table re-renders raced click handling and made
+    /// selection flaky. Age-style cells tick themselves via TimelineView.
+    var listRowContext: RowContext { makeRowContext(now: Date()) }
+
+    private func makeRowContext(now: Date) -> RowContext {
         var context = RowContext(
             podMetrics: podMetrics,
             nodeMetrics: nodeMetrics,
