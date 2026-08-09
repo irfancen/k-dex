@@ -69,14 +69,14 @@ struct SidebarView: View {
     private static let sectionOrderKey = "sidebar-section-order-v3"
 
     /// One section token per CRD API group ("crd:cert-manager.io"), so each
-    /// installed operator gets its own sidebar section, Aptakube-style.
+    /// installed operator gets its own sidebar section.
     private var crdGroupTokens: [String] {
         Set(model.kindCatalog.filter(\.isCustom).map(\.group))
             .sorted()
             .map { "crd:\($0)" }
     }
 
-    /// Cluster first by default (Aptakube-style), then helm and the rest;
+    /// Cluster first by default, then helm and the rest;
     /// CRD group sections slot in before Other.
     private var defaultSectionOrder: [String] {
         ["cluster", "helm", "workloads", "network", "config", "storage", "access"]
