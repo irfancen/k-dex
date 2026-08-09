@@ -285,17 +285,46 @@ struct LabelChip: View {
 /// Makes the enclosing sheet window user-resizable. SwiftUI sheets on macOS
 /// don't get a resizable style mask even when their content declares a
 /// flexible frame, so the window has to be patched directly.
+///
+/// The mask is KVO-guarded, not one-shot: SwiftUI configures the sheet
+/// window asynchronously and can stomp a mask inserted too early — a race
+/// that made resizability intermittent on sheets whose content never
+/// re-renders (a second update pass happened to re-assert it for sheets
+/// that do). The observation puts the bit back whenever something strips it.
 struct SheetWindowConfigurator: NSViewRepresentable {
+    final class Coordinator {
+        private weak var window: NSWindow?
+        private var observation: NSKeyValueObservation?
+
+        func attach(_ window: NSWindow) {
+            guard self.window !== window else { return }
+            self.window = window
+            window.styleMask.insert(.resizable)
+            observation = window.observe(\.styleMask) { window, _ in
+                // Hop to the main actor (window KVO fires there anyway, but
+                // the closure isn't statically isolated), and re-insert
+                // asynchronously — doing it inside the KVO callback would
+                // recurse into the setter being observed.
+                Task { @MainActor [weak window] in
+                    guard let window, !window.styleMask.contains(.resizable) else { return }
+                    window.styleMask.insert(.resizable)
+                }
+            }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
-        DispatchQueue.main.async {
-            view.window?.styleMask.insert(.resizable)
+        DispatchQueue.main.async { [weak view] in
+            if let window = view?.window { context.coordinator.attach(window) }
         }
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        nsView.window?.styleMask.insert(.resizable)
+        if let window = nsView.window { context.coordinator.attach(window) }
     }
 }
 
