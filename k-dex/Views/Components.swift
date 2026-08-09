@@ -292,14 +292,20 @@ struct LabelChip: View {
 /// re-renders (a second update pass happened to re-assert it for sheets
 /// that do). The observation puts the bit back whenever something strips it.
 struct SheetWindowConfigurator: NSViewRepresentable {
+    /// Enforced as the window's contentMinSize: a hand-inserted resizable
+    /// mask comes with no floor, so without this the sheet can be collapsed
+    /// into an empty pill. Should match the content's own frame minimums.
+    var minSize = CGSize(width: 640, height: 480)
+
     final class Coordinator {
         private weak var window: NSWindow?
         private var observation: NSKeyValueObservation?
 
-        func attach(_ window: NSWindow) {
+        func attach(_ window: NSWindow, minSize: CGSize) {
             guard self.window !== window else { return }
             self.window = window
             window.styleMask.insert(.resizable)
+            window.contentMinSize = minSize
             observation = window.observe(\.styleMask) { window, _ in
                 // Hop to the main actor (window KVO fires there anyway, but
                 // the closure isn't statically isolated), and re-insert
@@ -317,14 +323,14 @@ struct SheetWindowConfigurator: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
-        DispatchQueue.main.async { [weak view] in
-            if let window = view?.window { context.coordinator.attach(window) }
+        DispatchQueue.main.async { [weak view, minSize] in
+            if let window = view?.window { context.coordinator.attach(window, minSize: minSize) }
         }
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        if let window = nsView.window { context.coordinator.attach(window) }
+        if let window = nsView.window { context.coordinator.attach(window, minSize: minSize) }
     }
 }
 
