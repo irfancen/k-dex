@@ -92,6 +92,9 @@ struct CreateResourceSheet: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
         }
+        // SwiftUI sheets don't get a resizable style mask on macOS even with
+        // flexible content — same fix as the expanded editor/log sheets.
+        .background(SheetWindowConfigurator())
         // CRD-backed kinds get a schema-derived template: required fields,
         // defaults, and placeholders synthesized from the CRD's own OpenAPI
         // schema. Any failure (fetch, no spec schema) silently keeps the
