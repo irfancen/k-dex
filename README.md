@@ -25,7 +25,8 @@ A clean, minimal Kubernetes UI for macOS, built with SwiftUI.
   and context named in the dialog.
 - **Create & edit YAML** — per-kind creation templates and an in-app editor
   with syntax highlighting, backed by `kubectl apply`.
-- **Port forwarding** — pods and services, managed from a toolbar popover.
+- **Port forwarding** — pods, services, and workloads (deployments, stateful
+  sets, daemon sets, replica sets), managed from a toolbar popover.
 - **Helm releases** — read directly from release Secrets (no helm CLI needed):
   chart, status, values, manifest, notes, history — values and manifest behind
   an explicit reveal, since they often contain credentials.

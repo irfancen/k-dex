@@ -15,7 +15,8 @@ final class PortForwardManager {
         let id = UUID()
         let context: String
         let namespace: String
-        /// "pod" or "service"
+        /// kubectl target token: "pod", "service", or a workload kind
+        /// ("deployment", "statefulset", …) that kubectl resolves to a pod.
         let targetType: String
         let targetName: String
         let localPort: Int

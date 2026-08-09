@@ -39,7 +39,7 @@ struct PortForwardListView: View {
                 .font(.headline)
 
             if manager.forwards.isEmpty {
-                Text("No active forwards. Right-click a pod or service and choose “Port Forward…”.")
+                Text("No active forwards. Right-click a pod, service, or workload and choose “Port Forward…”.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
@@ -53,7 +53,10 @@ struct PortForwardListView: View {
                             Text(forward.displayTarget)
                                 .font(.callout)
                                 .lineLimit(1)
-                            Text("localhost:\(forward.localPort) → \(forward.remotePort) · \(forward.namespace)")
+                            // String(port): LocalizedStringKey interpolation
+                            // would localize Ints as quantities ("5.173" for
+                            // port 5173 under a dot-grouping locale).
+                            Text("localhost:\(String(forward.localPort)) → \(String(forward.remotePort)) · \(forward.namespace)")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             if case .failed(let message) = forward.state {
@@ -113,11 +116,16 @@ struct PortForwardSheet: View {
     init(object: KubeObject, kind: ResourceKind) {
         self.object = object
         self.kind = kind
+        // Suggested remote ports, by target shape: a Service forwards one of
+        // its service ports; a Pod exposes its containers' ports; workloads
+        // (kubectl resolves them to one of their pods) declare theirs on the
+        // pod template.
         let ports: [Int]
         if kind == .services {
             ports = object.raw["spec"]["ports"].array.compactMap { $0["port"].int }
         } else {
-            ports = object.raw["spec"]["containers"].array
+            let spec = kind == .pods ? object.raw["spec"] : object.raw["spec"]["template"]["spec"]
+            ports = spec["containers"].array
                 .flatMap { $0["ports"].array }
                 .compactMap { $0["containerPort"].int }
         }
@@ -177,7 +185,9 @@ struct PortForwardSheet: View {
         .frame(width: 360)
     }
 
+    /// The kubectl target token ("deployment", "service", …). kubectl
+    /// resolves singular kind names for every built-in that can forward.
     private var targetType: String {
-        kind == .services ? "service" : "pod"
+        kind.kindName.lowercased()
     }
 }
