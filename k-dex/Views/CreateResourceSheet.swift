@@ -63,19 +63,16 @@ struct CreateResourceSheet: View {
                     .padding(.vertical, 4)
             }
 
-            // 592 + 2×24 padding = the window's 640 floor, so the editor and
-            // window minimums agree and text keeps a comfortable margin even
-            // fully shrunk (the sheet also opens at this minimum).
             if loadingTemplate {
                 ProgressView("Reading the CRD schema…")
                     .controlSize(.small)
-                    .frame(minWidth: 592, minHeight: 440)
-                    .padding(.horizontal, 24)
+                    .frame(minWidth: 640, minHeight: 440)
+                    .padding(.horizontal, 14)
                     .padding(.vertical, 10)
             } else {
                 YAMLEditor(text: $yaml)
-                    .frame(minWidth: 592, minHeight: 440)
-                    .padding(.horizontal, 24)
+                    .frame(minWidth: 640, minHeight: 440)
+                    .padding(.horizontal, 14)
                     .padding(.vertical, 10)
             }
 
@@ -97,8 +94,11 @@ struct CreateResourceSheet: View {
         }
         // SwiftUI sheets don't get a resizable style mask on macOS even with
         // flexible content — same fix as the expanded editor/log sheets.
-        // Min matches the editor's 640×440 plus header and footer chrome.
-        .background(SheetWindowConfigurator(minSize: CGSize(width: 640, height: 560)))
+        // Floor = editor minimum (640) + its horizontal padding (2×14), and
+        // vertically the editor plus header/footer chrome: the window must
+        // never be able to shrink into the content, which clips the padding
+        // off the editor's edges.
+        .background(SheetWindowConfigurator(minSize: CGSize(width: 668, height: 560)))
         // CRD-backed kinds get a schema-derived template: required fields,
         // defaults, and placeholders synthesized from the CRD's own OpenAPI
         // schema. Any failure (fetch, no spec schema) silently keeps the
