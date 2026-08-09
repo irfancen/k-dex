@@ -9,10 +9,14 @@ struct CreateResourceSheet: View {
     @State private var yaml: String
     @State private var applying = false
     @State private var errorMessage: String?
+    private let namespace: String
+    private let stubTemplate: String
 
     init(kind: ResourceKind, namespace: String?) {
         self.kind = kind
-        _yaml = State(initialValue: ResourceTemplates.template(for: kind, namespace: namespace ?? "default"))
+        self.namespace = namespace ?? "default"
+        self.stubTemplate = ResourceTemplates.template(for: kind, namespace: self.namespace)
+        _yaml = State(initialValue: stubTemplate)
     }
 
     var body: some View {
@@ -56,6 +60,17 @@ struct CreateResourceSheet: View {
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
+        }
+        // CRD-backed kinds get a schema-derived template: required fields,
+        // defaults, and placeholders synthesized from the CRD's own OpenAPI
+        // schema. Replaces the generic stub only while it sits unedited, and
+        // any failure (fetch, no spec schema) silently keeps the stub.
+        .task {
+            guard kind.isCustom else { return }
+            guard let crd = try? await Kubectl.crdDefinition(id: kind.id, context: model.selectedContext),
+                  let generated = CRDTemplate.generate(fromCRD: crd, kind: kind, namespace: namespace)
+            else { return }
+            if yaml == stubTemplate { yaml = generated }
         }
     }
 
