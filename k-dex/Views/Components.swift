@@ -369,6 +369,71 @@ struct SheetWindowConfigurator: NSViewRepresentable {
     }
 }
 
+/// Clears the table selection when the user clicks the empty area below the
+/// rows — AppKit tables deselect there, but SwiftUI's Table bridge swallows
+/// it. Installed as a `.background` of the Table so its own frame identifies
+/// which scroll view is "the" table; clicks on the header (sorting), the
+/// scrollers, the safe-area banners, and anything overlaying the table (the
+/// detail panel's own lists included) are deliberately ignored.
+struct TableEmptyAreaDeselector: NSViewRepresentable {
+    var onEmptyClick: @MainActor () -> Void
+
+    final class Coordinator {
+        // nonisolated(unsafe): deinit is nonisolated and may not touch
+        // MainActor state; the coordinator deallocates with its view on the
+        // main thread, so the access is main-thread in practice.
+        nonisolated(unsafe) var monitor: Any?
+        deinit {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        context.coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak view] event in
+            MainActor.assumeIsolated {
+                guard let view, let window = view.window, event.window === window else { return }
+                let point = event.locationInWindow
+                let ourFrame = view.convert(view.bounds, to: nil)
+                guard ourFrame.contains(point) else { return }
+                guard let hit = window.contentView?.hitTest(point) else { return }
+                if hit is NSScroller { return }
+
+                // Walk up from the hit: bail on header views, find the table.
+                var table: NSTableView?
+                var current: NSView? = hit
+                while let node = current {
+                    if node is NSTableHeaderView { return }
+                    if let found = node as? NSTableView { table = found; break }
+                    current = node.superview
+                }
+                // The empty area below the rows hits the clip view, whose
+                // document is the table.
+                if table == nil, let clip = hit as? NSClipView {
+                    table = clip.documentView as? NSTableView
+                }
+                guard let table, let scroll = table.enclosingScrollView else { return }
+
+                // Only the main table: its scroll view spans this background
+                // view's frame. The detail panel's inner lists (also
+                // NSTableView-backed) are smaller overlays — ignore them.
+                let scrollFrame = scroll.convert(scroll.bounds, to: nil)
+                guard abs(scrollFrame.midX - ourFrame.midX) < 2, abs(scrollFrame.width - ourFrame.width) < 2 else { return }
+
+                if table.row(at: table.convert(point, from: nil)) == -1 {
+                    onEmptyClick()
+                }
+            }
+            return event
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
 // MARK: - Custom detail split panel
 
 /// Whether the pointer is currently over the detail panel. Hover-triggered
