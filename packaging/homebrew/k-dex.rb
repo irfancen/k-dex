@@ -2,8 +2,8 @@
 # under Casks/k-dex.rb). After each release: bump version, paste the DMG's
 # sha256 (printed by scripts/release.sh).
 cask "k-dex" do
-  version "1.0.0"
-  sha256 "1dcfb1025cbdd85554af1300c7a7a5aef6e5fae35554e67f5c00d478b2b793e5"
+  version "1.1.0"
+  sha256 "990e2bed5aceb97ee3364950d9270d6ad90fce07f02f0601b0c7006a7cf123d1"
 
   url "https://github.com/irfancen/k-dex/releases/download/v#{version}/K-Dex-#{version}.dmg"
   name "K-Dex"
