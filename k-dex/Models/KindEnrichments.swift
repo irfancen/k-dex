@@ -20,17 +20,12 @@ nonisolated extension ResourceKind {
     /// Live aggregated CPU/Memory bars shared by all pod-owning workloads.
     private static func workloadUsageColumns() -> [ColumnSpec] {
         [
-            ColumnSpec("CPU", ideal: 108, max: 150, style: .usage) { obj, ctx in
-                Cell(
-                    text: KindHelpers.workloadUsageText(obj, ctx, resource: "cpu"),
-                    usage: KindHelpers.workloadUsageValue(obj, ctx, resource: "cpu")
-                )
+            // Ideal = "888m"/"888Mi" text + gap + the fixed bar rail.
+            ColumnSpec("CPU", ideal: 150, max: 190, style: .usage) { obj, ctx in
+                KindHelpers.workloadUsageCell(obj, ctx, resource: "cpu")
             },
-            ColumnSpec("Memory", ideal: 116, max: 160, style: .usage) { obj, ctx in
-                Cell(
-                    text: KindHelpers.workloadUsageText(obj, ctx, resource: "memory"),
-                    usage: KindHelpers.workloadUsageValue(obj, ctx, resource: "memory")
-                )
+            ColumnSpec("Memory", ideal: 165, max: 205, style: .usage) { obj, ctx in
+                KindHelpers.workloadUsageCell(obj, ctx, resource: "memory")
             },
         ]
     }
@@ -112,30 +107,18 @@ nonisolated extension ResourceKind {
                     guard let date = KindHelpers.podLastRestart(obj) else { return "–" }
                     return Fmt.age(date, relativeTo: ctx.now) + " ago"
                 },
-                ColumnSpec("CPU", ideal: 108, max: 150, style: .usage) { obj, ctx in
-                    Cell(
-                        text: KindHelpers.usageWithLimit(
-                            usage: ctx.podMetrics["\(obj.namespace)/\(obj.name)"]?.cpu,
-                            limit: KindHelpers.summedResource(obj.raw["spec"]["containers"].array, section: "limits", resource: "cpu")
-                        ),
-                        usage: KindHelpers.podUsage(obj, ctx, resource: "cpu")
-                    )
+                ColumnSpec("CPU", ideal: 150, max: 190, style: .usage) { obj, ctx in
+                    KindHelpers.podUsageCell(obj, ctx, resource: "cpu")
                 },
-                ColumnSpec("Memory", ideal: 116, max: 160, style: .usage) { obj, ctx in
-                    Cell(
-                        text: KindHelpers.usageWithLimit(
-                            usage: ctx.podMetrics["\(obj.namespace)/\(obj.name)"]?.memory,
-                            limit: KindHelpers.summedResource(obj.raw["spec"]["containers"].array, section: "limits", resource: "memory")
-                        ),
-                        usage: KindHelpers.podUsage(obj, ctx, resource: "memory")
-                    )
+                ColumnSpec("Memory", ideal: 165, max: 205, style: .usage) { obj, ctx in
+                    KindHelpers.podUsageCell(obj, ctx, resource: "memory")
                 },
                 ColumnSpec("Node", ideal: 140) { obj, _ in obj.raw["spec"]["nodeName"].stringValue },
             ])
 
         t[deployments.id] = KindEnrichment(
             displayName: "Deployments", icon: "square.stack.3d.up", category: .workloads,
-            supportsRestart: true, supportsScale: true, showsPods: true,
+            supportsRestart: true, supportsScale: true, supportsPortForward: true, showsPods: true,
             columns: [
                 replicaReadyColumn(),
                 ColumnSpec("Up-to-date", ideal: 84, max: 104) { obj, _ in String(obj.raw["status"]["updatedReplicas"].int ?? 0) },
@@ -144,12 +127,12 @@ nonisolated extension ResourceKind {
 
         t[statefulSets.id] = KindEnrichment(
             displayName: "Stateful Sets", icon: "list.number", category: .workloads,
-            supportsRestart: true, supportsScale: true, showsPods: true,
+            supportsRestart: true, supportsScale: true, supportsPortForward: true, showsPods: true,
             columns: [replicaReadyColumn()] + workloadUsageColumns() + workloadRestartColumns())
 
         t[daemonSets.id] = KindEnrichment(
             displayName: "Daemon Sets", icon: "circle.hexagongrid", category: .workloads,
-            supportsRestart: true, showsPods: true,
+            supportsRestart: true, supportsPortForward: true, showsPods: true,
             columns: [
                 ColumnSpec("Desired", ideal: 55, max: 75) { obj, _ in String(obj.raw["status"]["desiredNumberScheduled"].int ?? 0) },
                 ColumnSpec("Ready", ideal: 55, max: 75, style: .badge) { obj, _ in
@@ -164,7 +147,7 @@ nonisolated extension ResourceKind {
 
         t[replicaSets.id] = KindEnrichment(
             displayName: "Replica Sets", icon: "square.on.square", category: .workloads,
-            supportsScale: true, showsPods: true,
+            supportsScale: true, supportsPortForward: true, showsPods: true,
             columns: [
                 ColumnSpec("Desired", ideal: 55, max: 75) { obj, _ in String(obj.raw["spec"]["replicas"].int ?? 0) },
                 ColumnSpec("Current", ideal: 55, max: 75) { obj, _ in String(obj.raw["status"]["replicas"].int ?? 0) },
@@ -432,18 +415,26 @@ nonisolated extension ResourceKind {
                 },
                 ColumnSpec("Roles", ideal: 110, max: 160) { obj, _ in KindHelpers.nodeRoles(obj) },
                 ColumnSpec("Version", ideal: 90, max: 130) { obj, _ in obj.raw["status"]["nodeInfo"]["kubeletVersion"].stringValue },
-                ColumnSpec("CPU", ideal: 100, max: 130, style: .usage) { obj, ctx in
-                    guard let m = ctx.nodeMetrics[obj.name] else { return Cell(text: "–") }
+                // Wider than the workload columns: node text carries a
+                // percent suffix ("888m (88%)") beside the same bar rail.
+                ColumnSpec("CPU", ideal: 195, max: 235, style: .usage) { obj, ctx in
+                    guard let m = ctx.nodeMetrics[obj.name] else {
+                        return Cell(text: "–", fallback: ctx.metricsStatus)
+                    }
                     return Cell(
                         text: "\(m.cpu) (\(m.cpuPercent))",
-                        usage: KindHelpers.percentFraction(m.cpuPercent).map { UsageValue(fraction: $0, bounded: true) }
+                        usage: KindHelpers.percentFraction(m.cpuPercent).map { UsageValue(fraction: $0, bounded: true) },
+                        detail: KindHelpers.nodeCapacityDetail(obj, resource: "cpu")
                     )
                 },
-                ColumnSpec("Memory", ideal: 116, max: 150, style: .usage) { obj, ctx in
-                    guard let m = ctx.nodeMetrics[obj.name] else { return Cell(text: "–") }
+                ColumnSpec("Memory", ideal: 210, max: 245, style: .usage) { obj, ctx in
+                    guard let m = ctx.nodeMetrics[obj.name] else {
+                        return Cell(text: "–", fallback: ctx.metricsStatus)
+                    }
                     return Cell(
                         text: "\(m.memory) (\(m.memoryPercent))",
-                        usage: KindHelpers.percentFraction(m.memoryPercent).map { UsageValue(fraction: $0, bounded: true) }
+                        usage: KindHelpers.percentFraction(m.memoryPercent).map { UsageValue(fraction: $0, bounded: true) },
+                        detail: KindHelpers.nodeCapacityDetail(obj, resource: "memory")
                     )
                 },
             ])

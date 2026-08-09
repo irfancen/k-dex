@@ -49,6 +49,9 @@ final class AppModel {
     private(set) var podMetrics: [String: PodMetric] = [:]
     private(set) var nodeMetrics: [String: NodeMetric] = [:]
     private(set) var workloadUsage: [String: WorkloadUsage] = [:]
+    /// Why the last metrics fetch produced nothing, so usage columns can say
+    /// so instead of quietly showing spec'd requests in usage's place.
+    private(set) var metricsStatus: MetricsStatus = .unknown
     private(set) var isLoading = false
     private(set) var lastError: String?
     private(set) var lastRefreshed: Date?
@@ -112,6 +115,7 @@ final class AppModel {
             podMetrics: podMetrics,
             nodeMetrics: nodeMetrics,
             workloadUsage: workloadUsage,
+            metricsStatus: metricsStatus,
             now: lastRefreshed ?? Date()
         )
         for metric in podMetrics.values {
@@ -317,6 +321,12 @@ final class AppModel {
         helmReleases = []
         overview = nil
         workloadUsage = [:]
+        // Metrics are keyed by "namespace/name", which collides across
+        // clusters — keeping them through a context switch would attribute
+        // one cluster's usage to another's identically-named pods.
+        podMetrics = [:]
+        nodeMetrics = [:]
+        metricsStatus = .unknown
         selectedObjectID = nil
         selectedHelmID = nil
         lastError = nil
@@ -535,24 +545,39 @@ final class AppModel {
     private func refreshMetrics(kind: ResourceKind, generationSnapshot: Int) async {
         switch kind {
         case .pods:
-            let metrics = (try? await Kubectl.podMetrics(context: selectedContext, namespace: selectedNamespace)) ?? [:]
-            if generationSnapshot == generation { podMetrics = metrics }
+            let (metrics, status) = await Kubectl.podMetricsResult(context: selectedContext, namespace: selectedNamespace)
+            if generationSnapshot == generation {
+                podMetrics = metrics
+                metricsStatus = Self.refine(status, got: metrics.count, expected: objects.count)
+            }
         case .nodes:
-            let usage = (try? await Kubectl.nodeMetrics(context: selectedContext)) ?? [:]
+            let (usage, status) = await Kubectl.nodeMetricsResult(context: selectedContext)
             if generationSnapshot == generation {
                 nodeMetrics = Self.computeNodeMetrics(nodes: objects, usage: usage)
+                metricsStatus = Self.refine(status, got: usage.count, expected: objects.count)
             }
         case .deployments, .statefulSets, .daemonSets, .replicaSets:
             async let podsFetch = Kubectl.list(kind: .pods, context: selectedContext, namespace: selectedNamespace)
-            async let metricsFetch = Kubectl.podMetrics(context: selectedContext, namespace: selectedNamespace)
+            async let metricsFetch = Kubectl.podMetricsResult(context: selectedContext, namespace: selectedNamespace)
             let pods = (try? await podsFetch) ?? []
-            let metrics = (try? await metricsFetch) ?? [:]
+            let (metrics, status) = await metricsFetch
             if generationSnapshot == generation {
                 workloadUsage = Self.computeWorkloadUsage(workloads: objects, pods: pods, metrics: metrics)
+                // Judged against the pods, not the workloads: metrics rows are
+                // per-pod, and a workload scaled to zero legitimately has none.
+                metricsStatus = Self.refine(status, got: metrics.count, expected: pods.count)
             }
         default:
             break
         }
+    }
+
+    /// A metrics call that succeeds with zero rows is ambiguous — an empty
+    /// namespace looks exactly like a metrics-server that can't scrape. Only
+    /// call it empty when there were objects it should have reported on.
+    private static func refine(_ status: MetricsStatus, got: Int, expected: Int) -> MetricsStatus {
+        guard status == .available, got == 0, expected > 0 else { return status }
+        return .empty
     }
 
     /// Joins raw node usage with each node's allocatable capacity to produce

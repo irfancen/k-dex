@@ -11,11 +11,27 @@ nonisolated struct Cell: Sendable {
     var text: String
     var tone: StatusTone?
     var usage: UsageValue?
+    /// Non-nil when `text` is spec'd requests/limits standing in for live
+    /// usage the metrics API didn't provide. Carries the reason so the cell
+    /// can be dimmed and explained rather than misread as consumption —
+    /// "100m / 500m" is a very different claim as requests than as usage.
+    var fallback: MetricsStatus?
+    /// Hover tooltip: the exact numbers a compact cell omits (request/limit
+    /// behind a usage bar's geometry).
+    var detail: String?
 
-    init(text: String, tone: StatusTone? = nil, usage: UsageValue? = nil) {
+    init(
+        text: String,
+        tone: StatusTone? = nil,
+        usage: UsageValue? = nil,
+        fallback: MetricsStatus? = nil,
+        detail: String? = nil
+    ) {
         self.text = text
         self.tone = tone
         self.usage = usage
+        self.fallback = fallback
+        self.detail = detail
     }
 }
 

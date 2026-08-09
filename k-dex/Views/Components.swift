@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Combine
 
 extension StatusTone {
     var color: Color {
@@ -25,7 +26,7 @@ enum Pasteboard {
     }
 }
 
-/// Aptakube-style status: plain colored text, no capsule chrome.
+/// Status as plain colored text, no capsule chrome.
 struct StatusBadge: View {
     let text: String
     let tone: StatusTone
@@ -42,30 +43,124 @@ struct StatusBadge: View {
     }
 }
 
-/// Compact "12m / 500m" cell with a usage bar underneath. Bounded values
-/// (vs limit/request) get threshold colors; relative values are neutral blue.
+/// Usage cell: compact live-usage text on the leading edge, a
+/// uniform fixed-width bar pinned to the trailing edge, slack in between —
+/// text lines up with the other columns, bars form one aligned rail. The bar
+/// encodes the spec — full width is the limit, the tick is the request — and
+/// the exact numbers surface on hover. Bounded values get threshold colors;
+/// relative values are neutral blue.
 struct UsageBar: View {
     let text: String
     let usage: UsageValue?
+    /// Non-nil when the text stands in for live usage the metrics API didn't
+    /// return: dims it and explains why on hover, so spec'd requests can't be
+    /// read as consumption.
+    var fallback: MetricsStatus?
+    /// Hover text for healthy cells (the request/limit numbers the compact
+    /// text omits). `fallback` wins when both are set.
+    var detail: String?
+
+    static let barWidth: CGFloat = 96
+    private static let barHeight: CGFloat = 8
+
+    @State private var hoverTask: Task<Void, Never>?
+    @State private var showDetail = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2.5) {
-            Text(text)
-                .font(.caption)
-                .monospacedDigit()
-                .lineLimit(1)
-            if let usage {
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(.quaternary.opacity(0.6))
-                        Capsule()
-                            .fill(barColor(usage))
-                            .frame(width: max(2, geo.size.width * min(1, usage.fraction)))
+        row
+    }
+
+    /// Hover popover on the bar only — pointing at the drawing you're asking
+    /// about, without popping while mousing across the rest of the row.
+    /// Custom instead of .help(): the system tooltip's ~1.5s delay reads as
+    /// "no tooltip here", and lowering the global NSInitialToolTipDelay made
+    /// every other tooltip trigger-happy. The short debounce keeps a pointer
+    /// sweeping across bars from strobing popovers.
+    @ViewBuilder
+    private func hoverDetail<Target: View>(_ target: Target) -> some View {
+        if let help = fallback?.cellDetail ?? detail {
+            target
+                .onHover { inside in
+                    hoverTask?.cancel()
+                    if inside {
+                        hoverTask = Task {
+                            try? await Task.sleep(for: .milliseconds(180))
+                            // The panel check runs after the debounce, by
+                            // which point both hover events have settled.
+                            if !Task.isCancelled, !DetailPanelHover.pointerInside { showDetail = true }
+                        }
+                    } else {
+                        showDetail = false
                     }
                 }
-                .frame(height: 3)
+                .popover(isPresented: $showDetail, arrowEdge: .bottom) {
+                    Text(help)
+                        .font(.callout)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                }
+                // Table cells are recycled: a row scrolled out during the
+                // debounce must not resume and pop on a reused cell.
+                .onDisappear {
+                    hoverTask?.cancel()
+                    showDetail = false
+                }
+        } else {
+            target
+        }
+    }
+
+    private var row: some View {
+        HStack(spacing: 6) {
+            if let usage {
+                // Text stays on the leading edge with the other columns;
+                // the slack sits between it and a fixed-width bar rail
+                // pinned to the trailing edge. Vertical padding fattens the
+                // bar's hover target without changing what's drawn.
+                label
+                Spacer(minLength: 4)
+                hoverDetail(bar(usage).padding(.vertical, 6))
+            } else {
+                // No bar to hover — a fallback cell's diagnostic hangs off
+                // the text instead.
+                hoverDetail(label)
+                Spacer(minLength: 0)
             }
         }
+    }
+
+    private func bar(_ usage: UsageValue) -> some View {
+        ZStack(alignment: .leading) {
+            Capsule().fill(.quaternary.opacity(0.6))
+            // Fill never narrower than its height, so near-zero
+            // usage renders as a dot, not a degenerate smear.
+            Capsule()
+                .fill(barColor(usage))
+                .frame(width: max(Self.barHeight, Self.barWidth * min(1, usage.fraction)))
+            // Request tick: usage left of it fits in the request;
+            // right of it is burst headroom. A white core in a dark
+            // halo keeps it visible whether it lands on the bare
+            // track or on any fill color, in either appearance.
+            if let marker = usage.marker {
+                RoundedRectangle(cornerRadius: 1.75)
+                    .fill(.black.opacity(0.55))
+                    .frame(width: 3.5, height: Self.barHeight)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 0.75)
+                            .fill(.white.opacity(0.95))
+                            .frame(width: 1.5)
+                    }
+                    .offset(x: max(0, min(Self.barWidth - 3.5, Self.barWidth * marker - 1.75)))
+            }
+        }
+        .frame(width: Self.barWidth, height: Self.barHeight)
+    }
+
+    private var label: some View {
+        Text(text)
+            .monospacedDigit()
+            .lineLimit(1)
+            .foregroundStyle(fallback == nil ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary))
     }
 
     private func barColor(_ usage: UsageValue) -> Color {
@@ -206,10 +301,21 @@ struct SheetWindowConfigurator: NSViewRepresentable {
 
 // MARK: - Custom detail split panel
 
+/// Whether the pointer is currently over the detail panel. Hover-triggered
+/// UI in the table underneath must check this: AppKit tracking areas fire on
+/// geometry alone, so a usage bar covered by the panel still gets hover
+/// events and would pop its detail through the panel.
+@MainActor
+enum DetailPanelHover {
+    static var pointerInside = false
+}
+
 extension View {
     /// Right-side detail panel with a fully controlled divider: hard width
     /// clamping and drag-to-close. Replaces the native inspector, which does
-    /// not reliably enforce its width limits during aggressive drags.
+    /// not reliably enforce its width limits during aggressive drags. Overlays
+    /// the content rather than splitting it, so opening the panel never
+    /// reflows the table underneath.
     func detailPanel<Panel: View>(
         isPresented: Binding<Bool>,
         @ViewBuilder panel: @escaping () -> Panel
@@ -229,17 +335,32 @@ private struct DetailPanelModifier<Panel: View>: ViewModifier {
 
     func body(content: Content) -> some View {
         GeometryReader { geo in
-            HStack(spacing: 0) {
-                content
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                if isPresented {
-                    splitter(totalWidth: geo.size.width)
-                    panel()
-                        .frame(width: clamped(panelWidth, totalWidth: geo.size.width))
-                        .frame(maxHeight: .infinity)
+            // The panel overlays the list instead of splitting with it: the
+            // table keeps its full width and column layout when the panel
+            // opens — rows are covered, never reflowed.
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay(alignment: .trailing) {
+                    if isPresented {
+                        HStack(spacing: 0) {
+                            splitter(totalWidth: geo.size.width)
+                            panel()
+                                .frame(width: clamped(panelWidth, totalWidth: geo.size.width))
+                                .frame(maxHeight: .infinity)
+                        }
                         .background(.regularMaterial)
+                        .shadow(color: .black.opacity(0.22), radius: 10, x: -3)
+                        .onHover { DetailPanelHover.pointerInside = $0 }
+                        .onDisappear { DetailPanelHover.pointerInside = false }
+                        // The exit hover event is missed when the pointer
+                        // leaves via Cmd-Tab or a space switch; without this
+                        // reset the stuck flag suppresses every usage popover
+                        // until the panel is hovered again.
+                        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in
+                            DetailPanelHover.pointerInside = false
+                        }
+                    }
                 }
-            }
         }
     }
 

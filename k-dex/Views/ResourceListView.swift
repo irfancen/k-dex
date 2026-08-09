@@ -42,7 +42,7 @@ struct ResourceListView: View {
                         case .badge:
                             StatusBadge(text: cell.text, tone: cell.tone ?? .neutral)
                         case .usage:
-                            UsageBar(text: cell.text, usage: cell.usage)
+                            UsageBar(text: cell.text, usage: cell.usage, fallback: cell.fallback, detail: cell.detail)
                         case .plain:
                             Text(cell.text)
                                 .monospacedDigit()
@@ -81,6 +81,22 @@ struct ResourceListView: View {
             VStack(spacing: 0) {
                 if let error = model.lastError {
                     ErrorBanner(message: error) { model.requestRefresh() }
+                }
+                // Only where usage columns exist, and only once rows are on
+                // screen — an empty list has nothing to mislead anyone about.
+                if hasUsageColumns, !rows.isEmpty, let hint = model.metricsStatus.listHint {
+                    HStack(spacing: 6) {
+                        Image(systemName: "chart.bar.xaxis")
+                            .foregroundStyle(.orange)
+                        Text(hint)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(.orange.opacity(0.08))
                 }
                 if kind == .pods, let filter = model.podFilter {
                     HStack(spacing: 6) {
@@ -261,6 +277,10 @@ struct ResourceListView: View {
     private func lastRestartDate(_ object: KubeObject, _ ctx: RowContext) -> Date? {
         if kind == .pods { return KindHelpers.podLastRestart(object) }
         return ctx.workloadUsage["\(object.namespace)/\(object.name)"]?.lastRestart
+    }
+
+    private var hasUsageColumns: Bool {
+        kind.columns.contains { $0.style == .usage }
     }
 
     private var inspectorPresented: Binding<Bool> {

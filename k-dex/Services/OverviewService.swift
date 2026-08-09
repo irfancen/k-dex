@@ -48,10 +48,10 @@ nonisolated struct OverviewData: Sendable {
     let warnings: [Warning]
     let restarts: [Restart]
     let hotPods: [HotPod]
-    let metricsAvailable: Bool
+    let metricsStatus: MetricsStatus
 }
 
-/// Builds the Aptakube-style workload overview: per-kind status buckets,
+/// Builds the workload overview: per-kind status buckets,
 /// recent warning events, recent container restarts, and pods near their limits.
 nonisolated enum OverviewService {
     static func load(context: String, namespace: String?) async throws -> OverviewData {
@@ -67,10 +67,14 @@ nonisolated enum OverviewService {
         async let jobsFetch = safeList(.jobs, context: context, namespace: namespace)
         async let cronJobsFetch = safeList(.cronJobs, context: context, namespace: namespace)
         async let eventsFetch = safeList(.events, context: context, namespace: namespace)
-        async let metricsFetch = try? Kubectl.podMetrics(context: context, namespace: namespace)
+        async let metricsFetch = Kubectl.podMetricsResult(context: context, namespace: namespace)
 
         let pods = try await podsFetch
-        let metrics = await metricsFetch
+        let (metrics, rawMetricsStatus) = await metricsFetch
+        // Zero metrics rows for zero pods is not a metrics problem.
+        let metricsStatus: MetricsStatus = rawMetricsStatus == .available && metrics.isEmpty && !pods.isEmpty
+            ? .empty
+            : rawMetricsStatus
 
         var summaries: [OverviewData.KindSummary] = []
         summaries.append(podSummary(pods))
@@ -85,8 +89,8 @@ nonisolated enum OverviewService {
             summaries: summaries,
             warnings: warnings(from: await eventsFetch),
             restarts: restarts(from: pods),
-            hotPods: hotPods(from: pods, metrics: metrics ?? [:]),
-            metricsAvailable: metrics != nil
+            hotPods: hotPods(from: pods, metrics: metrics),
+            metricsStatus: metricsStatus
         )
     }
 

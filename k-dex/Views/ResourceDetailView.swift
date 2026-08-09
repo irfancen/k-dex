@@ -172,6 +172,19 @@ private struct OverviewTab: View {
                             let cell = column.cell(object, rowContext)
                             if column.style == .badge {
                                 StatusBadge(text: cell.text, tone: cell.tone ?? .neutral)
+                            } else if column.style == .usage, let detail = cell.detail ?? cell.fallback?.cellDetail {
+                                // The compact table cell hides request/limit
+                                // behind hover; the panel has room to spell
+                                // them out under the number.
+                                VStack(alignment: .trailing, spacing: 2) {
+                                    Text(cell.text)
+                                        .textSelection(.enabled)
+                                        .foregroundStyle(cell.fallback == nil ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary))
+                                    Text(detail)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .multilineTextAlignment(.trailing)
+                                }
                             } else {
                                 Text(cell.text)
                                     .textSelection(.enabled)

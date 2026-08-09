@@ -200,6 +200,52 @@ nonisolated enum Kubectl {
     // `kubectl get --raw` hits the metrics API directly, returning real JSON —
     // unlike `kubectl top`, whose human-formatted table would need scraping.
 
+    /// Turns a failed metrics call into the reason the UI should show. The
+    /// aggregated API reports its absence, a denial, and an unready backend
+    /// with three distinct server errors, and telling them apart is the
+    /// difference between "install metrics-server" and "ask for RBAC".
+    static func metricsStatus(for error: any Error) -> MetricsStatus {
+        guard let processError = error as? ProcessError,
+              case .failed(_, _, let stderr) = processError else {
+            return .failed(error.localizedDescription)
+        }
+        let text = stderr.lowercased()
+        if text.contains("could not find the requested resource") || text.contains("(notfound)") {
+            return .notInstalled
+        }
+        if text.contains("(serviceunavailable)") || text.contains("currently unable to handle the request") {
+            return .unavailable
+        }
+        if text.contains("(forbidden)") || text.contains("(unauthorized)") || text.contains("cannot list resource") {
+            return .forbidden
+        }
+        let trimmed = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        return .failed(trimmed.isEmpty ? "kubectl exited with an error" : trimmed)
+    }
+
+    /// Pod metrics plus, on failure, why they're missing. Callers rendering
+    /// usage need the reason; a bare `try?` here is what made a missing
+    /// metrics-server indistinguishable from an idle cluster.
+    static func podMetricsResult(
+        context: String,
+        namespace: String?
+    ) async -> (metrics: [String: PodMetric], status: MetricsStatus) {
+        do {
+            return (try await podMetrics(context: context, namespace: namespace), .available)
+        } catch {
+            return ([:], metricsStatus(for: error))
+        }
+    }
+
+    /// Node usage plus the reason it's missing. See `podMetricsResult`.
+    static func nodeMetricsResult(context: String) async -> (usage: [String: RawUsage], status: MetricsStatus) {
+        do {
+            return (try await nodeMetrics(context: context), .available)
+        } catch {
+            return ([:], metricsStatus(for: error))
+        }
+    }
+
     static func podMetrics(context: String, namespace: String?) async throws -> [String: PodMetric] {
         let path = namespace.map { "/apis/metrics.k8s.io/v1beta1/namespaces/\($0)/pods" }
             ?? "/apis/metrics.k8s.io/v1beta1/pods"

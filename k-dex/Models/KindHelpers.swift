@@ -222,61 +222,130 @@ nonisolated enum KindHelpers {
         }
     }
 
-    /// Usage bar for one pod: vs limit, else vs request, else relative to the
-    /// biggest consumer in the list (so every row gets a bar).
-    static func podUsage(_ obj: KubeObject, _ ctx: RowContext, resource: String) -> UsageValue? {
-        guard let metric = ctx.podMetrics["\(obj.namespace)/\(obj.name)"] else { return nil }
-        let usageRaw = resource == "cpu" ? metric.cpu : metric.memory
-        guard let usage = resource == "cpu" ? Quantity.cpuMillicores(usageRaw) : Quantity.memoryBytes(usageRaw) else {
-            return nil
-        }
+    /// The whole CPU/Memory cell for one pod: live usage as compact text, the
+    /// bar encoding request (tick) and limit (full width), and the exact
+    /// spec'd numbers on hover. With no metric the cell
+    /// shows dimmed "request / limit" and is flagged so the view can say why.
+    /// Text, bar, and detail come from one requests walk and one limits walk;
+    /// like `workloadUsageCell`, nothing here reads the containers twice.
+    static func podUsageCell(_ obj: KubeObject, _ ctx: RowContext, resource: String) -> Cell {
         let containers = obj.raw["spec"]["containers"].array
-        if let limit = summedRawResource(containers, section: "limits", resource: resource), limit > 0 {
-            return UsageValue(fraction: usage / limit, bounded: true)
+        let request = summedRawResource(containers, section: "requests", resource: resource)
+        let limit = summedRawResource(containers, section: "limits", resource: resource)
+        let requestText = request.map { formatted($0, resource: resource) }
+        let limitText = limit.map { formatted($0, resource: resource) }
+        guard let metric = ctx.podMetrics["\(obj.namespace)/\(obj.name)"] else {
+            return Cell(text: specText(request: requestText, limit: limitText), fallback: ctx.metricsStatus)
         }
-        if let request = summedRawResource(containers, section: "requests", resource: resource), request > 0 {
-            return UsageValue(fraction: usage / request, bounded: true)
-        }
-        let peak = resource == "cpu" ? ctx.maxPodCPUMillis : ctx.maxPodMemoryBytes
-        guard peak > 0 else { return nil }
-        return UsageValue(fraction: usage / peak, bounded: false)
-    }
 
-    /// Usage bar for a workload: summed pod usage vs (per-pod limit × pod count),
-    /// falling back to requests, then relative to the biggest workload.
-    static func workloadUsageValue(_ obj: KubeObject, _ ctx: RowContext, resource: String) -> UsageValue? {
-        guard let usage = ctx.workloadUsage["\(obj.namespace)/\(obj.name)"], usage.hasMetrics else { return nil }
-        let value = resource == "cpu" ? usage.cpuMillis : usage.memoryBytes
-        let containers = obj.raw["spec"]["template"]["spec"]["containers"].array
-        if usage.podCount > 0 {
-            if let perPod = summedRawResource(containers, section: "limits", resource: resource), perPod > 0 {
-                return UsageValue(fraction: value / (perPod * Double(usage.podCount)), bounded: true)
-            }
-            if let perPod = summedRawResource(containers, section: "requests", resource: resource), perPod > 0 {
-                return UsageValue(fraction: value / (perPod * Double(usage.podCount)), bounded: true)
+        // Bar denominator: limit, else request, else relative to the biggest
+        // consumer in the list. Zero peak (every pod idle) still yields a
+        // bar — an empty track, because invisible means unmeasured.
+        let usageText = resource == "cpu" ? metric.cpu : metric.memory
+        var bar: UsageValue?
+        if let usage = resource == "cpu" ? Quantity.cpuMillicores(usageText) : Quantity.memoryBytes(usageText) {
+            if let limit, limit > 0 {
+                bar = UsageValue(fraction: usage / limit, bounded: true, marker: requestMarker(request, overLimit: limit))
+            } else if let request, request > 0 {
+                bar = UsageValue(fraction: usage / request, bounded: true)
+            } else {
+                let peak = resource == "cpu" ? ctx.maxPodCPUMillis : ctx.maxPodMemoryBytes
+                bar = UsageValue(fraction: peak > 0 ? usage / peak : 0, bounded: false)
             }
         }
-        let peak = resource == "cpu" ? ctx.maxWorkloadCPUMillis : ctx.maxWorkloadMemoryBytes
-        guard peak > 0 else { return nil }
-        return UsageValue(fraction: value / peak, bounded: false)
+        return Cell(text: usageText, usage: bar, detail: specDetail(request: requestText, limit: limitText))
     }
 
-    /// "usage / total-limit" for a workload; falls back to template request/limit
-    /// text when live metrics aren't available.
-    static func workloadUsageText(_ obj: KubeObject, _ ctx: RowContext, resource: String) -> String {
+    /// The whole CPU/Memory cell for a workload: summed live pod usage as
+    /// compact text, barred against (per-pod limit × pod count), else
+    /// requests, else relative to the biggest workload in the list; the
+    /// spec'd totals ride along as hover detail.
+    ///
+    /// Without metrics it falls back to the pod template's "request / limit" —
+    /// the same `a / b` shape as real usage, so the cell carries the reason and
+    /// the view dims it. Text and bar are produced together because they share
+    /// every lookup; deriving them separately walked the containers twice per
+    /// cell, on every row, on every refresh.
+    static func workloadUsageCell(_ obj: KubeObject, _ ctx: RowContext, resource: String) -> Cell {
         guard let usage = ctx.workloadUsage["\(obj.namespace)/\(obj.name)"], usage.hasMetrics else {
-            return templateResources(obj, resource: resource)
+            return Cell(text: templateResources(obj, resource: resource), fallback: ctx.metricsStatus)
         }
         let value = resource == "cpu" ? usage.cpuMillis : usage.memoryBytes
-        let usageText = resource == "cpu" ? Quantity.formatCPU(millicores: value) : Quantity.formatMemory(bytes: value)
         let containers = obj.raw["spec"]["template"]["spec"]["containers"].array
-        var limitText: String?
-        if usage.podCount > 0,
-           let perPod = summedRawResource(containers, section: "limits", resource: resource) {
-            let total = perPod * Double(usage.podCount)
-            limitText = resource == "cpu" ? Quantity.formatCPU(millicores: total) : Quantity.formatMemory(bytes: total)
+
+        var requestTotal: Double?
+        var limitTotal: Double?
+        var bar: UsageValue?
+        if usage.podCount > 0 {
+            let pods = Double(usage.podCount)
+            requestTotal = summedRawResource(containers, section: "requests", resource: resource).map { $0 * pods }
+            limitTotal = summedRawResource(containers, section: "limits", resource: resource).map { $0 * pods }
+            if let limitTotal, limitTotal > 0 {
+                bar = UsageValue(fraction: value / limitTotal, bounded: true, marker: requestMarker(requestTotal, overLimit: limitTotal))
+            } else if let requestTotal, requestTotal > 0 {
+                bar = UsageValue(fraction: value / requestTotal, bounded: true)
+            }
         }
-        return usageWithLimit(usage: usageText, limit: limitText)
+        if bar == nil {
+            // Zero peak still yields a bar — see podUsage.
+            let peak = resource == "cpu" ? ctx.maxWorkloadCPUMillis : ctx.maxWorkloadMemoryBytes
+            bar = UsageValue(fraction: peak > 0 ? value / peak : 0, bounded: false)
+        }
+        return Cell(
+            text: formatted(value, resource: resource),
+            usage: bar,
+            detail: specDetail(
+                request: requestTotal.map { formatted($0, resource: resource) },
+                limit: limitTotal.map { formatted($0, resource: resource) },
+                pods: usage.podCount
+            )
+        )
+    }
+
+    private static func formatted(_ value: Double, resource: String) -> String {
+        resource == "cpu" ? Quantity.formatCPU(millicores: value) : Quantity.formatMemory(bytes: value)
+    }
+
+    /// Where the request tick sits on a bar whose full width is the limit.
+    /// Nil when there's no request, or it coincides with an edge (request ==
+    /// limit is the common Guaranteed-QoS case — a tick on the bar's end cap
+    /// would be pure noise).
+    private static func requestMarker(_ request: Double?, overLimit limit: Double) -> Double? {
+        guard let request, request > 0, request < limit else { return nil }
+        return request / limit
+    }
+
+    /// Hover/panel detail for a node usage cell. Nodes have no requests or
+    /// limits — the bar's denominator is allocatable (what pods may claim),
+    /// and capacity is the machine total behind it.
+    static func nodeCapacityDetail(_ obj: KubeObject, resource: String) -> String? {
+        func fmt(_ raw: String) -> String? {
+            guard !raw.isEmpty else { return nil }
+            let value = resource == "cpu" ? Quantity.cpuMillicores(raw) : Quantity.memoryBytes(raw)
+            return value.map { formatted($0, resource: resource) }
+        }
+        let allocatable = fmt(obj.raw["status"]["allocatable"][resource].stringValue)
+        let capacity = fmt(obj.raw["status"]["capacity"][resource].stringValue)
+        guard allocatable != nil || capacity != nil else { return nil }
+        return "Allocatable \(allocatable ?? "–") · Capacity \(capacity ?? "–")"
+    }
+
+    /// Dimmed stand-in text when there's no live usage: the spec'd values,
+    /// in the "request / limit" shape `templateResources` uses for workloads.
+    private static func specText(request: String?, limit: String?) -> String {
+        if request == nil && limit == nil { return "–" }
+        return "\(request ?? "–") / \(limit ?? "–")"
+    }
+
+    /// Tooltip spelling out what the bar encodes: the tick (request) and the
+    /// full width (limit), plus how many pods the numbers are summed over.
+    private static func specDetail(request: String?, limit: String?, pods: Int? = nil) -> String {
+        var parts = [
+            "Request \(request ?? "not set")",
+            "Limit \(limit ?? "not set")",
+        ]
+        if let pods, pods > 1 { parts.append("summed over \(pods) pods") }
+        return parts.joined(separator: " · ")
     }
 
     /// "45%" → 0.45

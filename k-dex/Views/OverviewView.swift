@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Aptakube-style workload overview: per-kind status cards, recent warnings,
+/// Workload overview: per-kind status cards, recent warnings,
 /// recent restarts, and pods running close to their limits.
 struct OverviewView: View {
     @Environment(AppModel.self) private var model
@@ -170,10 +170,11 @@ struct OverviewView: View {
     private func hotPodsSection(_ data: OverviewData) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             sectionTitle("Abnormal Resource Usage")
-            if !data.metricsAvailable {
-                Text("Metrics unavailable — install metrics-server to see pods running close to their limits.")
+            if let reason = data.metricsStatus.reason {
+                Text("Can't tell — no live usage. \(reason)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             } else if data.hotPods.isEmpty {
                 Text("No pods above 90% of their CPU or memory limit.")
                     .font(.caption)
@@ -190,10 +191,12 @@ struct OverviewView: View {
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                                 .frame(maxWidth: .infinity, alignment: .leading)
+                            // Wide enough for "CPU 888m / 888m" beside the
+                            // fixed bar rail without truncation.
                             UsageBar(text: "CPU " + pod.cpuText, usage: pod.cpuFraction.map { UsageValue(fraction: $0, bounded: true) })
-                                .frame(width: 150)
+                                .frame(width: 230)
                             UsageBar(text: "Mem " + pod.memoryText, usage: pod.memoryFraction.map { UsageValue(fraction: $0, bounded: true) })
-                                .frame(width: 150)
+                                .frame(width: 230)
                         }
                         .contentShape(Rectangle())
                     }
