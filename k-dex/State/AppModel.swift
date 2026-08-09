@@ -676,8 +676,17 @@ final class AppModel {
     }
 
     private nonisolated static func sort(_ objects: [KubeObject], kind: ResourceKind) -> [KubeObject] {
-        if kind == .events {
-            return objects.sorted { (kind.ageDate($0) ?? .distantPast) > (kind.ageDate($1) ?? .distantPast) }
+        // Newest-first where name order answers nothing: Events (the
+        // existing convention), ReplicaSets (random template-hash suffixes),
+        // and Jobs (serially suffixed when CronJob-spawned). "Which is
+        // current, which are old" is the question those lists exist for.
+        if kind == .events || kind == .replicaSets || kind == .jobs {
+            return objects.sorted {
+                let left = kind.ageDate($0) ?? .distantPast
+                let right = kind.ageDate($1) ?? .distantPast
+                if left != right { return left > right }
+                return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+            }
         }
         return objects.sorted {
             let result = $0.name.localizedCaseInsensitiveCompare($1.name)

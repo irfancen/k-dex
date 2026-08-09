@@ -12,10 +12,14 @@ struct ResourceListView: View {
     @State private var sortOrder: [ColumnSort] = []
     // Persists user-resized/reordered/hidden columns per resource kind.
     @SceneStorage private var columnCustomization: TableColumnCustomization<KubeObject>
+    /// The header-click sort, persisted per kind as "columnID|direction" so
+    /// sorting Pods by Age survives navigation and relaunch.
+    @SceneStorage private var storedSort: String
 
     init(kind: ResourceKind) {
         self.kind = kind
         _columnCustomization = SceneStorage(wrappedValue: TableColumnCustomization<KubeObject>(), "columns-\(kind.id)")
+        _storedSort = SceneStorage(wrappedValue: "", "sort-\(kind.id)")
     }
 
     var body: some View {
@@ -59,6 +63,15 @@ struct ResourceListView: View {
         }
         .tableStyle(.inset)
         .alternatingRowBackgrounds(.disabled)
+        .onAppear {
+            guard sortOrder.isEmpty, !storedSort.isEmpty else { return }
+            let parts = storedSort.split(separator: "|", maxSplits: 1)
+            guard parts.count == 2 else { return }
+            sortOrder = [ColumnSort(id: String(parts[0]), order: parts[1] == "reverse" ? .reverse : .forward)]
+        }
+        .onChange(of: sortOrder) {
+            storedSort = sortOrder.first.map { "\($0.id)|\($0.order == .reverse ? "reverse" : "forward")" } ?? ""
+        }
         .onExitCommand { model.selectedObjectID = nil }
         .contextMenu(forSelectionType: String.self) { ids in
             if let object = rows.first(where: { ids.contains($0.id) }) {
