@@ -16,7 +16,8 @@ struct CRDTemplateTests {
     }
 
     private let widgetCRD = """
-    {"spec": {
+    {"metadata": {"name": "widgets.example.com"},
+     "spec": {
       "group": "example.com",
       "versions": [
         {"name": "v1alpha1", "served": false,
@@ -26,7 +27,7 @@ struct CRDTemplateTests {
          "schema": {"openAPIV3Schema": {"type": "object", "properties": {
            "spec": {
              "type": "object",
-             "required": ["size", "engine"],
+             "required": ["size", "engine", "rules"],
              "properties": {
                "size": {"type": "integer"},
                "engine": {
@@ -68,6 +69,9 @@ struct CRDTemplateTests {
     @Test func generatesFromServedVersionSchema() throws {
         let yaml = try #require(CRDTemplate.generate(fromCRD: crd(widgetCRD), kind: widgetKind, namespace: "demo"))
         #expect(yaml == """
+        # Generated from the widgets.example.com schema:
+        # required fields are filled in; optional sections are collapsed
+        # ({} / []) — expand the ones you need.
         apiVersion: example.com/v1
         kind: Widget
         metadata:
@@ -77,14 +81,41 @@ struct CRDTemplateTests {
           engine:
             mode: "Auto"
             threads: 4
+          rules:
+            - port: 0
+          size: 0
+          deep: {}
+          enabled: false
+          overrides: {}
+          tags: []
+        """)
+    }
+
+    @Test func completeModeExpandsEverything() throws {
+        let yaml = try #require(CRDTemplate.generate(
+            fromCRD: crd(widgetCRD), kind: widgetKind, namespace: "demo", detail: .complete
+        ))
+        #expect(yaml == """
+        # Generated from the widgets.example.com schema:
+        # every field, required and optional — trim what you don't need.
+        apiVersion: example.com/v1
+        kind: Widget
+        metadata:
+          name: my-widget
+          namespace: demo
+        spec:
+          engine:
+            mode: "Auto"
+            threads: 4
+          rules:
+            - port: 0
           size: 0
           deep:
-            inner: {}
+            inner:
+              optionalPastLimit: ""
             optionalAtLimit: ""
           enabled: false
           overrides: {}
-          rules:
-            - port: 0
           tags:
             - ""
         """)

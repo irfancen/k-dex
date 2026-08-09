@@ -6,21 +6,31 @@ import Foundation
 /// OLM's alm-examples exist only on OLM-managed clusters).
 ///
 /// Emission rules, tuned for a useful starting point over completeness —
-/// operator schemas run to megabytes, and emitting every optional field of a
-/// Prometheus CR would produce an unusable wall:
-/// - required fields are emitted at any depth;
-/// - optional fields only near the surface (depth ≤ 2 below `spec`);
+/// operator schemas run to megabytes, and expanding every optional section
+/// of a Redis or Prometheus CR produces an unusable wall:
+/// - required fields are emitted in full, at any depth;
+/// - optional scalars appear as placeholders down to depth 2;
+/// - optional objects and arrays collapse to one line (`key: {}` / `key: []`)
+///   — a scannable index of what's configurable, expanded by the user;
 /// - declared defaults win, then the first enum value, then a type
 ///   placeholder (`""`, `0`, `false`);
 /// - `x-kubernetes-preserve-unknown-fields` objects emit `{}`;
-/// - arrays emit one example element;
+/// - required arrays emit one example element;
 /// - recursion hard-stops at depth 8 (schemas can self-nest);
 /// - object keys emit required-first, alphabetical within each group, so the
 ///   output is deterministic.
 nonisolated enum CRDTemplate {
+    enum Detail: Sendable {
+        /// Required fields expanded, optional sections collapsed to markers.
+        case simplified
+        /// Every schema field expanded (still bounded by the depth cap) —
+        /// the wall, on request.
+        case complete
+    }
+
     /// Nil when the CRD carries no usable `spec` schema — callers keep the
     /// generic stub.
-    static func generate(fromCRD crd: JSONValue, kind: ResourceKind, namespace: String) -> String? {
+    static func generate(fromCRD crd: JSONValue, kind: ResourceKind, namespace: String, detail: Detail = .simplified) -> String? {
         let versions = crd["spec"]["versions"].array
         let version = versions.first { $0["name"].stringValue == kind.version && ($0["served"].bool ?? false) }
             ?? versions.first { $0["served"].bool ?? false }
@@ -31,6 +41,14 @@ nonisolated enum CRDTemplate {
         let group = crd["spec"]["group"].stringValue
         let versionName = version["name"].stringValue
         var lines: [String] = []
+        lines.append("# Generated from the \(crd["metadata"]["name"].stringValue) schema:")
+        switch detail {
+        case .simplified:
+            lines.append("# required fields are filled in; optional sections are collapsed")
+            lines.append("# ({} / []) — expand the ones you need.")
+        case .complete:
+            lines.append("# every field, required and optional — trim what you don't need.")
+        }
         lines.append("apiVersion: \(group.isEmpty ? versionName : "\(group)/\(versionName)")")
         lines.append("kind: \(kind.kindName)")
         lines.append("metadata:")
@@ -38,7 +56,7 @@ nonisolated enum CRDTemplate {
         if kind.isNamespaced {
             lines.append("  namespace: \(namespace)")
         }
-        emit(key: "spec", schema: specSchema, indent: "", depth: 0, into: &lines)
+        emit(key: "spec", schema: specSchema, indent: "", depth: 0, detail: detail, into: &lines)
         return lines.joined(separator: "\n")
     }
 
@@ -54,32 +72,44 @@ nonisolated enum CRDTemplate {
         let body: [String]
     }
 
-    private static func emit(key: String, schema: JSONValue, indent: String, depth: Int, into lines: inout [String]) {
-        let rendered = render(schema: schema, depth: depth)
+    private static func emit(key: String, schema: JSONValue, indent: String, depth: Int, detail: Detail, into lines: inout [String]) {
+        let rendered = render(schema: schema, depth: depth, detail: detail)
         lines.append(indent + key + rendered.suffix)
         lines.append(contentsOf: rendered.body.map { indent + $0 })
     }
 
-    private static func render(schema: JSONValue, depth: Int) -> Rendered {
+    private static func render(schema: JSONValue, depth: Int, detail: Detail) -> Rendered {
         switch schema["type"].stringValue {
         case "object":
             let properties = schema["properties"].object
             guard !properties.isEmpty, depth < maxDepth else { return Rendered(suffix: ": {}", body: []) }
             let required = Set(schema["required"].array.map(\.stringValue))
             let children = orderedKeys(properties, required: required).filter { name in
-                required.contains(name) || depth < optionalDepthLimit
+                required.contains(name) || detail == .complete || depth < optionalDepthLimit
             }
             guard !children.isEmpty else { return Rendered(suffix: ": {}", body: []) }
             var body: [String] = []
             for name in children {
-                emit(key: name, schema: properties[name] ?? .null, indent: "  ", depth: depth + 1, into: &body)
+                let child = properties[name] ?? .null
+                // Simplified: optional composites collapse to a one-line
+                // marker — an operator-grade CRD has dozens of optional
+                // config sections, and expanding them all is the wall this
+                // mode exists to avoid. Complete expands everything.
+                let collapse = detail == .simplified && !required.contains(name)
+                if collapse, child["type"].stringValue == "object" {
+                    body.append("  \(name): {}")
+                } else if collapse, child["type"].stringValue == "array" {
+                    body.append("  \(name): []")
+                } else {
+                    emit(key: name, schema: child, indent: "  ", depth: depth + 1, detail: detail, into: &body)
+                }
             }
             return Rendered(suffix: ":", body: body)
         case "array":
             guard depth < maxDepth else { return Rendered(suffix: ": []", body: []) }
             let items = schema["items"]
             if items["type"].stringValue == "object", !items["properties"].object.isEmpty {
-                let element = render(schema: items, depth: depth + 1)
+                let element = render(schema: items, depth: depth + 1, detail: detail)
                 if element.suffix == ":", let first = element.body.first {
                     // The element's body lines all carry a uniform two-space
                     // child indent; re-prefix into a single "- " list item.
