@@ -107,8 +107,12 @@ nonisolated enum ProcessRunner {
             // forever, leaving a forward stuck in .starting or a log view
             // streaming. Fire with the stderr already buffered instead; no
             // pipe is read here, so drains can't race.
-            DispatchQueue.global().asyncAfter(deadline: .now() + 2) { [weak self] in
-                self?.tryFire(force: true)
+            // Strong self on purpose: the finisher is otherwise retained only
+            // through the pipe handlers, and if the caller drops the Process
+            // the whole chain deallocates and a weak watchdog would silently
+            // never fire. Two seconds of extra lifetime is the entire cost.
+            DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
+                self.tryFire(force: true)
             }
         }
 
