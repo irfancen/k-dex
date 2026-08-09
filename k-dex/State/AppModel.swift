@@ -734,36 +734,52 @@ final class AppModel {
         selectedObjectIDs = [object.id]
     }
 
-    func deleteObject(_ object: KubeObject, kind: ResourceKind) {
+    /// Deletes a selection: grouped by namespace with one kubectl call per
+    /// group — never one subprocess per object (the 256-fd GUI ceiling from
+    /// finding 11 applies to destructive batches too) — one refresh at the
+    /// end, and one aggregated error naming every group that failed.
+    func deleteObjects(_ objects: [KubeObject], kind: ResourceKind) {
+        batchAction(objects) { names, namespace in
+            try await Kubectl.delete(kind: kind, names: names, namespace: namespace, context: self.selectedContext)
+        }
+    }
+
+    func restartObjects(_ objects: [KubeObject], kind: ResourceKind) {
+        batchAction(objects) { names, namespace in
+            try await Kubectl.rolloutRestart(kind: kind, names: names, namespace: namespace, context: self.selectedContext)
+        }
+    }
+
+    private func batchAction(
+        _ objects: [KubeObject],
+        _ run: @escaping (_ names: [String], _ namespace: String?) async throws -> Void
+    ) {
         Task {
-            do {
-                try await Kubectl.delete(
-                    kind: kind,
-                    name: object.name,
-                    namespace: object.namespace.isEmpty ? nil : object.namespace,
-                    context: self.selectedContext
-                )
-                self.requestRefresh()
-            } catch {
-                self.actionError = error.localizedDescription
+            let groups = Dictionary(grouping: objects, by: \.namespace).sorted { $0.key < $1.key }
+            var failures: [String] = []
+            for (namespace, group) in groups {
+                do {
+                    try await run(group.map(\.name), namespace.isEmpty ? nil : namespace)
+                } catch {
+                    failures.append(error.localizedDescription)
+                }
+            }
+            self.requestRefresh()
+            if !failures.isEmpty {
+                // kubectl reports per-name outcomes on stderr, so a group's
+                // message already says which objects failed within it.
+                let partial = failures.count < groups.count ? "Some groups succeeded. " : ""
+                self.actionError = partial + failures.joined(separator: "\n")
             }
         }
     }
 
+    func deleteObject(_ object: KubeObject, kind: ResourceKind) {
+        deleteObjects([object], kind: kind)
+    }
+
     func restartObject(_ object: KubeObject, kind: ResourceKind) {
-        Task {
-            do {
-                try await Kubectl.rolloutRestart(
-                    kind: kind,
-                    name: object.name,
-                    namespace: object.namespace.isEmpty ? nil : object.namespace,
-                    context: self.selectedContext
-                )
-                self.requestRefresh()
-            } catch {
-                self.actionError = error.localizedDescription
-            }
-        }
+        restartObjects([object], kind: kind)
     }
 
     func scaleObject(_ object: KubeObject, kind: ResourceKind, replicas: Int) {

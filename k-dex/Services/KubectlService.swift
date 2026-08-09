@@ -174,16 +174,30 @@ nonisolated enum Kubectl {
 
     // MARK: Actions
 
-    static func delete(kind: ResourceKind, name: String, namespace: String?, context: String) async throws {
-        var args = ["delete", kind.cliName, name, "--context", context]
+    /// One kubectl call for any number of same-namespace objects: batch
+    /// actions must not fan out one subprocess per object (finding 11's
+    /// 256-fd GUI ceiling, ~4 fds per spawn — a 60-row selection would burn
+    /// ~240 at once).
+    static func delete(kind: ResourceKind, names: [String], namespace: String?, context: String) async throws {
+        guard !names.isEmpty else { return }
+        var args = ["delete", kind.cliName] + names + ["--context", context]
         if kind.isNamespaced, let namespace { args += ["-n", namespace] }
         try await Commands.runner.runChecked("kubectl", args)
     }
 
-    static func rolloutRestart(kind: ResourceKind, name: String, namespace: String?, context: String) async throws {
-        var args = ["rollout", "restart", "\(kind.cliName)/\(name)", "--context", context]
+    static func delete(kind: ResourceKind, name: String, namespace: String?, context: String) async throws {
+        try await delete(kind: kind, names: [name], namespace: namespace, context: context)
+    }
+
+    static func rolloutRestart(kind: ResourceKind, names: [String], namespace: String?, context: String) async throws {
+        guard !names.isEmpty else { return }
+        var args = ["rollout", "restart"] + names.map { "\(kind.cliName)/\($0)" } + ["--context", context]
         if let namespace { args += ["-n", namespace] }
         try await Commands.runner.runChecked("kubectl", args)
+    }
+
+    static func rolloutRestart(kind: ResourceKind, name: String, namespace: String?, context: String) async throws {
+        try await rolloutRestart(kind: kind, names: [name], namespace: namespace, context: context)
     }
 
     static func scale(kind: ResourceKind, name: String, namespace: String?, replicas: Int, context: String) async throws {

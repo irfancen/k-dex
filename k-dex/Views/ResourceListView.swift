@@ -196,9 +196,7 @@ struct ResourceListView: View {
             isPresented: Binding(get: { !deleteCandidates.isEmpty }, set: { if !$0 { deleteCandidates = [] } })
         ) {
             Button(deleteCandidates.count == 1 ? "Delete" : "Delete \(deleteCandidates.count)", role: .destructive) {
-                for object in deleteCandidates {
-                    model.deleteObject(object, kind: kind)
-                }
+                model.deleteObjects(deleteCandidates, kind: kind)
                 model.selectedObjectIDs.subtract(deleteCandidates.map(\.id))
                 deleteCandidates = []
             }
@@ -214,9 +212,7 @@ struct ResourceListView: View {
             isPresented: Binding(get: { !restartCandidates.isEmpty }, set: { if !$0 { restartCandidates = [] } })
         ) {
             Button(restartCandidates.count == 1 ? "Rollout Restart" : "Rollout Restart \(restartCandidates.count)") {
-                for object in restartCandidates {
-                    model.restartObject(object, kind: kind)
-                }
+                model.restartObjects(restartCandidates, kind: kind)
                 restartCandidates = []
             }
         } message: {
@@ -248,11 +244,24 @@ struct ResourceListView: View {
         return "This deletes \(batchList(objects)) on context \(model.selectedContext) and cannot be undone."
     }
 
-    /// "a, b, c and 2 more" with bidi isolation around each cluster name.
+    /// Grouped by namespace so a cross-namespace batch names where things
+    /// live (finding 9's requirement, kept under batching): "a, b and 1 more
+    /// in default; c in kube-system". Every cluster-supplied string is
+    /// bidi-isolated.
     private func batchList(_ objects: [KubeObject]) -> String {
-        let names = objects.prefix(5).map { "\u{2068}\($0.name)\u{2069}" }.joined(separator: ", ")
-        let more = objects.count > 5 ? " and \(objects.count - 5) more" : ""
-        return "\(names)\(more)"
+        func nameList(_ group: [KubeObject], cap: Int) -> String {
+            let names = group.prefix(cap).map { "\u{2068}\($0.name)\u{2069}" }.joined(separator: ", ")
+            let more = group.count > cap ? " and \(group.count - cap) more" : ""
+            return names + more
+        }
+        let groups = Dictionary(grouping: objects, by: \.namespace).sorted { $0.key < $1.key }
+        if groups.count == 1, let only = groups.first {
+            let place = only.key.isEmpty ? "" : " in namespace \u{2068}\(only.key)\u{2069}"
+            return "\(nameList(only.value, cap: 5))\(place)"
+        }
+        return groups.map { namespace, group in
+            "\(nameList(group, cap: 3)) in \u{2068}\(namespace)\u{2069}"
+        }.joined(separator: "; ")
     }
 
     private func restartMessage(for objects: [KubeObject]) -> String {
