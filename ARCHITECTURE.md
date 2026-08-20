@@ -349,6 +349,15 @@ pays off with a mature library behind it — which Swift doesn't have.
 - **One context at a time** is a state-model simplification (`AppModel` holds
   a single `selectedContext`), not a transport limitation — since the watch
   overlay, a second cluster would cost one idle subprocess.
+- **The app keeps its own cluster state, and never writes the kubeconfig.**
+  Every subprocess carries `--context`, so working in a second cluster leaves
+  no trace on disk; `ClusterStateStore` (UserDefaults) remembers the last
+  connected context and a namespace per context, and the picker badges *that*
+  rather than the kubeconfig's `current-context` — which describes what a bare
+  `kubectl` would do next, not what this app was last looking at. The
+  kubeconfig stays the source of truth for which contexts exist (file-watched),
+  so a remembered context that disappears from it goes dormant and the
+  `current-context` badge returns.
 
 Each of these, and why it stays unfixed for now, is expanded in
 [LIMITATIONS.md](LIMITATIONS.md).

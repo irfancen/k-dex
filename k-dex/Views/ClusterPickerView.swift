@@ -8,10 +8,52 @@ struct ClusterPickerView: View {
     @State private var query = ""
 
     private var filtered: [KubeContext] {
-        guard !query.isEmpty else { return model.contexts }
+        guard !query.isEmpty else { return ordered }
         let q = query.lowercased()
-        return model.contexts.filter {
+        return ordered.filter {
             $0.name.lowercased().contains(q) || $0.cluster.lowercased().contains(q)
+        }
+    }
+
+    /// The remembered cluster, but only while the kubeconfig still lists it:
+    /// deleting a context, or pointing Settings at a different kubeconfig,
+    /// leaves the memory dangling and the picker must not act on it.
+    private var remembered: String? {
+        guard let last = model.lastUsedContext,
+              model.contexts.contains(where: { $0.name == last }) else { return nil }
+        return last
+    }
+
+    /// The cluster this app was last in leads, whatever the kubeconfig lists
+    /// first; the rest keep kubeconfig order.
+    private var ordered: [KubeContext] {
+        guard let remembered,
+              let index = model.contexts.firstIndex(where: { $0.name == remembered }) else { return model.contexts }
+        var contexts = model.contexts
+        contexts.insert(contexts.remove(at: index), at: 0)
+        return contexts
+    }
+
+    /// App state wins: the cluster you last worked in is the one marked. Only
+    /// before the app has been used anywhere does the kubeconfig's
+    /// `current-context` get the badge — otherwise the picker would keep
+    /// pointing at the local cluster after a week in a remote one.
+    private func badge(for context: KubeContext) -> String? {
+        if let remembered {
+            return context.name == remembered ? "last used" : nil
+        }
+        return context.name == model.kubeconfigCurrentContext ? "current" : nil
+    }
+
+    /// The namespace the card promises to open in — the app's memory of this
+    /// cluster first, the kubeconfig's default namespace only where it has none.
+    private func namespaceLabel(for context: KubeContext) -> String? {
+        switch model.storedNamespace(for: context.name) {
+        case .named(let namespace): return "ns: \(namespace)"
+        case .all: return "all namespaces"
+        case .unset:
+            guard let namespace = context.defaultNamespace, !namespace.isEmpty else { return nil }
+            return "ns: \(namespace)"
         }
     }
 
@@ -48,7 +90,8 @@ struct ClusterPickerView: View {
                     ForEach(filtered) { context in
                         ClusterCard(
                             context: context,
-                            isCurrent: context.name == model.kubeconfigCurrentContext
+                            badge: badge(for: context),
+                            namespaceLabel: namespaceLabel(for: context)
                         ) {
                             model.connect(to: context.name)
                         }
@@ -99,7 +142,9 @@ struct ClusterPickerView: View {
 
 private struct ClusterCard: View {
     let context: KubeContext
-    let isCurrent: Bool
+    /// "last used" (app state) or "current" (kubeconfig, first run only).
+    let badge: String?
+    let namespaceLabel: String?
     let action: () -> Void
     @State private var hovering = false
 
@@ -116,8 +161,8 @@ private struct ClusterCard: View {
                             .font(.body.weight(.semibold))
                             .lineLimit(1)
                             .truncationMode(.middle)
-                        if isCurrent {
-                            Text("current")
+                        if let badge {
+                            Text(badge)
                                 .font(.caption2.weight(.medium))
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 1)
@@ -148,9 +193,7 @@ private struct ClusterCard: View {
     private var subtitle: String {
         var parts = [context.cluster]
         if context.user != context.name { parts.append(context.user) }
-        if let namespace = context.defaultNamespace, !namespace.isEmpty {
-            parts.append("ns: \(namespace)")
-        }
+        if let namespaceLabel { parts.append(namespaceLabel) }
         return parts.joined(separator: " · ")
     }
 }
