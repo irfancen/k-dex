@@ -131,6 +131,11 @@ struct UsageBar: View {
     }
 
     private func bar(_ usage: UsageValue) -> some View {
+        // Two denominators share this column: a bounded bar reads "fraction
+        // of the limit (or request)", an unbounded one only "fraction of the
+        // busiest row on screen" — which on an idle list makes 1m look bigger
+        // than a spec'd pod at 3% of its request. The blue fill marks the
+        // difference and the hover detail names the peak it measures against.
         ZStack(alignment: .leading) {
             Capsule().fill(.quaternary.opacity(0.6))
             // Fill never narrower than its height, so near-zero
