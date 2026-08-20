@@ -152,10 +152,15 @@ empty response) so the UI can say *why* — a missing metrics API, a 403, and a
 metrics-server that can't reach the kubelets are three different fixes, and a
 bare `try?` used to render all of them identically to an idle cluster. Node
 percentages are computed against each node's `status.allocatable`. Usage bars
-pick a denominator in priority order: limit → request → largest consumer in
-the list (the last one rendered as an unbounded blue bar rather than
-green/orange/red thresholds); when the denominator is the limit, a tick on
-the bar marks the request, and the exact spec'd numbers surface on hover.
+pick a denominator in priority order: limit → request → an assumed 1 vCPU /
+1Gi per pod (the last one rendered as a neutral blue bar rather than
+green/orange/red thresholds, since nothing promised that ceiling, and named on
+hover as "% of 1 vCPU"). The assumption replaced barring against the list's
+largest consumer, which meant two denominators in one column: live usage moves
+every tick and collapses to millicores on an idle cluster, so a 1m pod filled a
+quarter of the rail while a spec'd pod at 3% of its request showed a dot. When
+the denominator is the limit, a tick on the bar marks the request, and the
+exact spec'd numbers surface on hover.
 Workload rows (Deployments etc.) don't have their own metrics; K-Dex fetches
 pods + pod metrics and sums them per workload by matching each workload's
 `matchLabels` selector against pod labels.

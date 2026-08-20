@@ -135,14 +135,6 @@ final class AppModel {
             metricsStatus: metricsStatus,
             now: now
         )
-        for metric in podMetrics.values {
-            context.maxPodCPUMillis = max(context.maxPodCPUMillis, Quantity.cpuMillicores(metric.cpu) ?? 0)
-            context.maxPodMemoryBytes = max(context.maxPodMemoryBytes, Quantity.memoryBytes(metric.memory) ?? 0)
-        }
-        for usage in workloadUsage.values where usage.hasMetrics {
-            context.maxWorkloadCPUMillis = max(context.maxWorkloadCPUMillis, usage.cpuMillis)
-            context.maxWorkloadMemoryBytes = max(context.maxWorkloadMemoryBytes, usage.memoryBytes)
-        }
         return context
     }
 
