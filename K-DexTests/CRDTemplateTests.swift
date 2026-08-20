@@ -160,3 +160,26 @@ struct CRDTemplateTests {
         }
     }
 }
+
+// Pods were the one built-in kind falling through to the generic
+// apiVersion/kind/metadata stub, which the API server rejects outright —
+// spec.containers is required. Pins the real template and the two properties
+// that made the stub unusable.
+struct PodTemplateTests {
+    @Test func podTemplateCarriesASpecTheAPIServerAccepts() {
+        let yaml = ResourceTemplates.template(for: .pods, namespace: "demo")
+        #expect(yaml.contains("kind: Pod"))
+        #expect(yaml.contains("apiVersion: v1"))
+        #expect(yaml.contains("namespace: demo"))
+        // The stub's fatal omission.
+        #expect(yaml.contains("containers:"))
+        #expect(yaml.contains("image: nginx:1.27"))
+    }
+
+    @Test func podTemplateIsNotTheGenericStub() {
+        let pod = ResourceTemplates.template(for: .pods, namespace: "demo")
+        let stub = ResourceTemplates.template(for: .serviceAccounts, namespace: "demo")
+        #expect(pod != stub)
+        #expect(!stub.contains("spec:"))
+    }
+}
