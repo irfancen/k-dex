@@ -113,6 +113,7 @@ nonisolated extension ResourceKind {
                 ColumnSpec("Memory", ideal: 165, max: 205, style: .usage) { obj, ctx in
                     KindHelpers.podUsageCell(obj, ctx, resource: "memory")
                 },
+                .text("Pod IP", ideal: 110, max: 150, "status", "podIP"),
                 .text("Node", ideal: 140, "spec", "nodeName"),
             ])
 
@@ -414,7 +415,12 @@ nonisolated extension ResourceKind {
                     return Cell(text: text, tone: tone)
                 },
                 ColumnSpec("Roles", ideal: 110, max: 160) { obj, _ in KindHelpers.nodeRoles(obj) },
-                .text("Version", ideal: 90, max: 130, "status", "nodeInfo", "kubeletVersion"),
+                // Untainted is the common case, so the cell stays empty rather
+                // than spending a row on "0" — and the panel spells each taint
+                // out, effect by effect.
+                ColumnSpec("Taints", ideal: 200) { obj, _ in
+                    KindHelpers.nodeTaints(obj).joined(separator: ", ")
+                },
                 // Wider than the workload columns: node text carries a
                 // percent suffix ("888m (88%)") beside the same bar rail.
                 ColumnSpec("CPU", ideal: 195, max: 235, style: .usage) { obj, ctx in
@@ -437,6 +443,8 @@ nonisolated extension ResourceKind {
                         detail: KindHelpers.nodeCapacityDetail(obj, resource: "memory")
                     )
                 },
+                ColumnSpec("Internal IP", ideal: 110, max: 150) { obj, _ in KindHelpers.nodeInternalIP(obj) },
+                .text("Version", ideal: 90, max: 130, "status", "nodeInfo", "kubeletVersion"),
             ])
 
         t[namespaces.id] = KindEnrichment(

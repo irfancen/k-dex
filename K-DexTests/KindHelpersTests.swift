@@ -182,3 +182,49 @@ struct AssumedLimitTests {
         #expect(cell.detail?.hasPrefix("20% of 1 vCPU per pod") == true)
     }
 }
+
+// Node taints, in the `key=value:Effect` form kubectl taint speaks — valueless
+// taints (the control-plane one every cluster ships) must not render a stray
+// "=", and the effect drives how loudly the panel badges it.
+struct NodeTaintTests {
+    private func node(_ taints: String) throws -> KubeObject {
+        KubeObject(raw: try KubeJSON.decode(Data("""
+        {
+          "metadata": {"name": "node-0", "uid": "u1"},
+          "spec": {"taints": \(taints)}
+        }
+        """.utf8)))
+    }
+
+    @Test func valuelessTaintRendersWithoutAnEqualsSign() throws {
+        let taints = KindHelpers.nodeTaints(
+            try node("""
+            [{"key": "node-role.kubernetes.io/control-plane", "effect": "NoSchedule"}]
+            """)
+        )
+        #expect(taints == ["node-role.kubernetes.io/control-plane:NoSchedule"])
+    }
+
+    @Test func keyValueAndEffectAreJoinedInKubectlForm() throws {
+        let taints = KindHelpers.nodeTaints(
+            try node("""
+            [{"key": "workload", "value": "gpu", "effect": "NoExecute"},
+             {"key": "spot", "value": "true", "effect": "PreferNoSchedule"}]
+            """)
+        )
+        #expect(taints == ["workload=gpu:NoExecute", "spot=true:PreferNoSchedule"])
+    }
+
+    @Test func untaintedNodeHasNone() throws {
+        #expect(KindHelpers.nodeTaints(try node("[]")).isEmpty)
+        let bare = KubeObject(raw: try KubeJSON.decode(Data(#"{"metadata": {"name": "n", "uid": "u"}}"#.utf8)))
+        #expect(KindHelpers.nodeTaints(bare).isEmpty)
+    }
+
+    @Test func effectDrivesTheTone() {
+        #expect(KindHelpers.taintTone("NoExecute") == .bad)
+        #expect(KindHelpers.taintTone("NoSchedule") == .warn)
+        #expect(KindHelpers.taintTone("PreferNoSchedule") == .neutral)
+        #expect(KindHelpers.taintTone("") == .neutral)
+    }
+}

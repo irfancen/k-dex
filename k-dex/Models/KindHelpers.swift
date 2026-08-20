@@ -128,6 +128,37 @@ nonisolated enum KindHelpers {
         return roles.isEmpty ? "worker" : roles.joined(separator: ", ")
     }
 
+    /// Node address list, preferring the InternalIP entry kubectl -o wide
+    /// prints; falls back to whatever address the node does advertise.
+    static func nodeInternalIP(_ obj: KubeObject) -> String {
+        let addresses = obj.raw["status"]["addresses"].array
+        if let internalIP = addresses.first(where: { $0["type"].stringValue == "InternalIP" }) {
+            return internalIP["address"].stringValue
+        }
+        return addresses.first?["address"].stringValue ?? ""
+    }
+
+    /// Node taints in the form `kubectl taint` speaks: `key=value:Effect`,
+    /// with the value dropped when the taint carries none.
+    static func nodeTaints(_ obj: KubeObject) -> [String] {
+        obj.raw["spec"]["taints"].array.map { taint in
+            let value = taint["value"].stringValue
+            let pair = value.isEmpty ? taint["key"].stringValue : "\(taint["key"].stringValue)=\(value)"
+            let effect = taint["effect"].stringValue
+            return effect.isEmpty ? pair : "\(pair):\(effect)"
+        }
+    }
+
+    /// How loudly a taint keeps work off a node: eviction reads worst,
+    /// a hard block warns, a soft preference is just information.
+    static func taintTone(_ effect: String) -> StatusTone {
+        switch effect {
+        case "NoExecute": return .bad
+        case "NoSchedule": return .warn
+        default: return .neutral
+        }
+    }
+
     static func servicePorts(_ obj: KubeObject) -> String {
         obj.raw["spec"]["ports"].array.map { port in
             var text = "\(port["port"].displayString)/\(port["protocol"].stringValue)"
