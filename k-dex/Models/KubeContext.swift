@@ -38,8 +38,9 @@ nonisolated struct WorkloadUsage: Sendable {
 }
 
 /// A usage-bar value: how full the bar is and whether the denominator was a
-/// real bound (limit/request → threshold colors) or just the column max
-/// (relative comparison → neutral color). `marker`, when present, is the
+/// real bound the row declared (limit/request → threshold colors) or the
+/// assumed one vCPU / one Gi used for rows that declare nothing
+/// (→ neutral color, since no threshold was ever promised). `marker`, when present, is the
 /// spec'd request as a fraction of the same denominator — a tick on the bar
 /// showing where usage crosses from within-request into burst headroom.
 nonisolated struct UsageValue: Sendable {
@@ -114,10 +115,6 @@ nonisolated struct RowContext: Sendable {
     var podMetrics: [String: PodMetric] = [:]
     var nodeMetrics: [String: NodeMetric] = [:]
     var workloadUsage: [String: WorkloadUsage] = [:]
-    var maxPodCPUMillis: Double = 0
-    var maxPodMemoryBytes: Double = 0
-    var maxWorkloadCPUMillis: Double = 0
-    var maxWorkloadMemoryBytes: Double = 0
     /// Lets a usage cell explain, in place, why it is showing spec'd
     /// requests instead of consumption.
     var metricsStatus: MetricsStatus = .unknown

@@ -165,9 +165,9 @@ private struct OverviewTab: View {
                 }
             }
 
-            if !kind.columns.isEmpty {
+            if !detailColumns.isEmpty {
                 Section("Details") {
-                    ForEach(kind.columns) { column in
+                    ForEach(detailColumns) { column in
                         LabeledContent(column.title) {
                             let cell = column.cell(object, rowContext)
                             if column.style == .badge {
@@ -199,6 +199,9 @@ private struct OverviewTab: View {
 
             if kind == .pods {
                 PodContainersSection(object: object)
+            }
+            if kind == .nodes {
+                NodeTaintsSection(object: object)
             }
             if kind == .configMaps {
                 DataSection(object: object, isSecret: false)
@@ -233,6 +236,14 @@ private struct OverviewTab: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// The list columns, minus any a dedicated section below already spells
+    /// out: the Details row is a squeezed one-liner of the same data, and a
+    /// section that badges the effect and dates the taint says it better.
+    private var detailColumns: [ColumnSpec] {
+        guard kind == .nodes else { return kind.columns }
+        return kind.columns.filter { $0.title != "Taints" }
     }
 
     private func detailRow(_ label: String, _ value: String) -> some View {
@@ -280,6 +291,47 @@ private struct ConditionRow: View {
                     .textSelection(.enabled)
             }
         }
+    }
+}
+
+/// Taints spelled out one per row: the key=value the scheduler matches on, the
+/// effect as a badge (eviction reads worse than a hard block, which reads worse
+/// than a preference), and when a NoExecute taint started evicting.
+private struct NodeTaintsSection: View {
+    let object: KubeObject
+
+    var body: some View {
+        let taints = object.raw["spec"]["taints"].array
+        if !taints.isEmpty {
+            Section("Taints") {
+                ForEach(Array(taints.enumerated()), id: \.offset) { _, taint in
+                    HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(keyValue(taint))
+                                .font(.callout.monospaced())
+                                .textSelection(.enabled)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            if let added = Fmt.parseDate(taint["timeAdded"].string) {
+                                Text("added \(Fmt.age(added)) ago")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer(minLength: 6)
+                        let effect = taint["effect"].stringValue
+                        if !effect.isEmpty {
+                            StatusBadge(text: effect, tone: KindHelpers.taintTone(effect))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func keyValue(_ taint: JSONValue) -> String {
+        let value = taint["value"].stringValue
+        return value.isEmpty ? taint["key"].stringValue : "\(taint["key"].stringValue)=\(value)"
     }
 }
 

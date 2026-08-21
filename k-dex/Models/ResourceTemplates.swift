@@ -4,6 +4,33 @@ import Foundation
 nonisolated enum ResourceTemplates {
     static func template(for kind: ResourceKind, namespace: String) -> String {
         switch kind {
+        // Pods are the one kind the generic fallback can't serve: a bare
+        // apiVersion/kind/metadata stub is a rejected Pod, since spec.containers
+        // is required.
+        case .pods:
+            return """
+            apiVersion: v1
+            kind: Pod
+            metadata:
+              name: my-pod
+              namespace: \(namespace)
+              labels:
+                app: my-pod
+            spec:
+              containers:
+                - name: app
+                  image: nginx:1.27
+                  ports:
+                    - containerPort: 80
+                  resources:
+                    requests:
+                      cpu: 100m
+                      memory: 128Mi
+                    limits:
+                      cpu: 250m
+                      memory: 256Mi
+              restartPolicy: Always
+            """
         case .deployments:
             return """
             apiVersion: apps/v1

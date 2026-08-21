@@ -152,10 +152,15 @@ empty response) so the UI can say *why* — a missing metrics API, a 403, and a
 metrics-server that can't reach the kubelets are three different fixes, and a
 bare `try?` used to render all of them identically to an idle cluster. Node
 percentages are computed against each node's `status.allocatable`. Usage bars
-pick a denominator in priority order: limit → request → largest consumer in
-the list (the last one rendered as an unbounded blue bar rather than
-green/orange/red thresholds); when the denominator is the limit, a tick on
-the bar marks the request, and the exact spec'd numbers surface on hover.
+pick a denominator in priority order: limit → request → an assumed 1 vCPU /
+1Gi per pod (the last one rendered as a neutral blue bar rather than
+green/orange/red thresholds, since nothing promised that ceiling, and named on
+hover as "% of 1 vCPU"). The assumption replaced barring against the list's
+largest consumer, which meant two denominators in one column: live usage moves
+every tick and collapses to millicores on an idle cluster, so a 1m pod filled a
+quarter of the rail while a spec'd pod at 3% of its request showed a dot. When
+the denominator is the limit, a tick on the bar marks the request, and the
+exact spec'd numbers surface on hover.
 Workload rows (Deployments etc.) don't have their own metrics; K-Dex fetches
 pods + pod metrics and sums them per workload by matching each workload's
 `matchLabels` selector against pod labels.
@@ -344,6 +349,15 @@ pays off with a mature library behind it — which Swift doesn't have.
 - **One context at a time** is a state-model simplification (`AppModel` holds
   a single `selectedContext`), not a transport limitation — since the watch
   overlay, a second cluster would cost one idle subprocess.
+- **The app keeps its own cluster state, and never writes the kubeconfig.**
+  Every subprocess carries `--context`, so working in a second cluster leaves
+  no trace on disk; `ClusterStateStore` (UserDefaults) remembers the last
+  connected context and a namespace per context, and the picker badges *that*
+  rather than the kubeconfig's `current-context` — which describes what a bare
+  `kubectl` would do next, not what this app was last looking at. The
+  kubeconfig stays the source of truth for which contexts exist (file-watched),
+  so a remembered context that disappears from it goes dormant and the
+  `current-context` badge returns.
 
 Each of these, and why it stays unfixed for now, is expanded in
 [LIMITATIONS.md](LIMITATIONS.md).

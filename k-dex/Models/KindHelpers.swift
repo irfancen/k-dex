@@ -128,6 +128,37 @@ nonisolated enum KindHelpers {
         return roles.isEmpty ? "worker" : roles.joined(separator: ", ")
     }
 
+    /// Node address list, preferring the InternalIP entry kubectl -o wide
+    /// prints; falls back to whatever address the node does advertise.
+    static func nodeInternalIP(_ obj: KubeObject) -> String {
+        let addresses = obj.raw["status"]["addresses"].array
+        if let internalIP = addresses.first(where: { $0["type"].stringValue == "InternalIP" }) {
+            return internalIP["address"].stringValue
+        }
+        return addresses.first?["address"].stringValue ?? ""
+    }
+
+    /// Node taints in the form `kubectl taint` speaks: `key=value:Effect`,
+    /// with the value dropped when the taint carries none.
+    static func nodeTaints(_ obj: KubeObject) -> [String] {
+        obj.raw["spec"]["taints"].array.map { taint in
+            let value = taint["value"].stringValue
+            let pair = value.isEmpty ? taint["key"].stringValue : "\(taint["key"].stringValue)=\(value)"
+            let effect = taint["effect"].stringValue
+            return effect.isEmpty ? pair : "\(pair):\(effect)"
+        }
+    }
+
+    /// How loudly a taint keeps work off a node: eviction reads worst,
+    /// a hard block warns, a soft preference is just information.
+    static func taintTone(_ effect: String) -> StatusTone {
+        switch effect {
+        case "NoExecute": return .bad
+        case "NoSchedule": return .warn
+        default: return .neutral
+        }
+    }
+
     static func servicePorts(_ obj: KubeObject) -> String {
         obj.raw["spec"]["ports"].array.map { port in
             var text = "\(port["port"].displayString)/\(port["protocol"].stringValue)"
@@ -238,22 +269,28 @@ nonisolated enum KindHelpers {
             return Cell(text: specText(request: requestText, limit: limitText), fallback: ctx.metricsStatus)
         }
 
-        // Bar denominator: limit, else request, else relative to the biggest
-        // consumer in the list. Zero peak (every pod idle) still yields a
-        // bar — an empty track, because invisible means unmeasured.
+        // Bar denominator: limit, else request, else the assumed one vCPU /
+        // one Gi — a fixed yardstick, so an idle list can't inflate a 1m pod
+        // into a quarter-full bar.
         let usageText = resource == "cpu" ? metric.cpu : metric.memory
         var bar: UsageValue?
+        var relativeNote: String?
         if let usage = resource == "cpu" ? Quantity.cpuMillicores(usageText) : Quantity.memoryBytes(usageText) {
             if let limit, limit > 0 {
                 bar = UsageValue(fraction: usage / limit, bounded: true, marker: requestMarker(request, overLimit: limit))
             } else if let request, request > 0 {
                 bar = UsageValue(fraction: usage / request, bounded: true)
             } else {
-                let peak = resource == "cpu" ? ctx.maxPodCPUMillis : ctx.maxPodMemoryBytes
-                bar = UsageValue(fraction: peak > 0 ? usage / peak : 0, bounded: false)
+                let assumed = assumedLimit(resource: resource)
+                bar = UsageValue(fraction: usage / assumed, bounded: false)
+                relativeNote = assumedNote(usage: usage, assumed: assumed, resource: resource, perPod: false)
             }
         }
-        return Cell(text: usageText, usage: bar, detail: specDetail(request: requestText, limit: limitText))
+        return Cell(
+            text: usageText,
+            usage: bar,
+            detail: specDetail(request: requestText, limit: limitText, leading: relativeNote)
+        )
     }
 
     /// The whole CPU/Memory cell for a workload: summed live pod usage as
@@ -286,10 +323,13 @@ nonisolated enum KindHelpers {
                 bar = UsageValue(fraction: value / requestTotal, bounded: true)
             }
         }
+        var relativeNote: String?
         if bar == nil {
-            // Zero peak still yields a bar — see podUsage.
-            let peak = resource == "cpu" ? ctx.maxWorkloadCPUMillis : ctx.maxWorkloadMemoryBytes
-            bar = UsageValue(fraction: peak > 0 ? value / peak : 0, bounded: false)
+            // The assumed limit is per pod, like a real one — the text above
+            // it is the whole workload's usage summed over its pods.
+            let assumed = assumedLimit(resource: resource) * Double(max(1, usage.podCount))
+            bar = UsageValue(fraction: value / assumed, bounded: false)
+            relativeNote = assumedNote(usage: value, assumed: assumed, resource: resource, perPod: usage.podCount > 1)
         }
         return Cell(
             text: formatted(value, resource: resource),
@@ -297,7 +337,8 @@ nonisolated enum KindHelpers {
             detail: specDetail(
                 request: requestTotal.map { formatted($0, resource: resource) },
                 limit: limitTotal.map { formatted($0, resource: resource) },
-                pods: usage.podCount
+                pods: usage.podCount,
+                leading: relativeNote
             )
         )
     }
@@ -339,13 +380,34 @@ nonisolated enum KindHelpers {
 
     /// Tooltip spelling out what the bar encodes: the tick (request) and the
     /// full width (limit), plus how many pods the numbers are summed over.
-    private static func specDetail(request: String?, limit: String?, pods: Int? = nil) -> String {
+    private static func specDetail(request: String?, limit: String?, pods: Int? = nil, leading: String? = nil) -> String {
         var parts = [
             "Request \(request ?? "not set")",
             "Limit \(limit ?? "not set")",
         ]
         if let pods, pods > 1 { parts.append("summed over \(pods) pods") }
+        if let leading { parts.insert(leading, at: 0) }
         return parts.joined(separator: " · ")
+    }
+
+    /// Denominator for a usage bar whose row declares neither a request nor a
+    /// limit: one vCPU, one Gi, per pod. It is an assumption, not a bound the
+    /// cluster will enforce, so those bars stay neutral-colored and say so on
+    /// hover — but a fixed scale beats the list's busiest row, whose usage
+    /// moves every tick and collapses to millicores on an idle cluster.
+    static let assumedCPULimitMillis = 1000.0
+    static let assumedMemoryLimitBytes = 1_073_741_824.0
+
+    static func assumedLimit(resource: String) -> Double {
+        resource == "cpu" ? assumedCPULimitMillis : assumedMemoryLimitBytes
+    }
+
+    /// Hover clause naming the assumed denominator, since such a bar is
+    /// otherwise indistinguishable from a percent-of-limit one.
+    private static func assumedNote(usage: Double, assumed: Double, resource: String, perPod: Bool) -> String {
+        let unit = resource == "cpu" ? "1 vCPU" : "1Gi"
+        let percent = Int((usage / assumed * 100).rounded())
+        return "\(percent)% of \(unit)\(perPod ? " per pod" : "")"
     }
 
     /// "45%" → 0.45

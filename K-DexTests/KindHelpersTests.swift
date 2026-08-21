@@ -96,3 +96,135 @@ struct KindHelpersTests {
         #expect(ColumnSpec.text("Missing", "spec", "nope").cell(obj, ctx).text == "")
     }
 }
+
+// Pins the denominator behind usage bars whose row declares neither a request
+// nor a limit: a fixed one vCPU / one Gi per pod. The old rule barred them
+// against the busiest row's live usage, which on an idle list made a 1m pod
+// fill a quarter of the rail while a spec'd pod at 3% of its request showed a
+// dot — two different meanings in one column.
+struct AssumedLimitTests {
+    private func object(_ json: String) throws -> KubeObject {
+        KubeObject(raw: try KubeJSON.decode(Data(json.utf8)))
+    }
+
+    private func pod(_ name: String, requests: String? = nil, limits: String? = nil) throws -> KubeObject {
+        var resources: [String] = []
+        if let requests { resources.append("\"requests\": \(requests)") }
+        if let limits { resources.append("\"limits\": \(limits)") }
+        return try object("""
+        {
+          "metadata": {"name": "\(name)", "namespace": "demo", "uid": "\(name)"},
+          "spec": {"containers": [{"name": "app", "resources": {\(resources.joined(separator: ", "))}}]},
+          "status": {"phase": "Running"}
+        }
+        """)
+    }
+
+    private func context(cpu: String, memory: String, pod name: String = "unspecd") -> RowContext {
+        var ctx = RowContext()
+        ctx.podMetrics = ["demo/\(name)": PodMetric(cpu: cpu, memory: memory)]
+        return ctx
+    }
+
+    @Test func unspecdPodBarsAgainstOneVCPU() throws {
+        let cell = KindHelpers.podUsageCell(
+            try pod("unspecd"), context(cpu: "250m", memory: "512Mi"), resource: "cpu"
+        )
+        #expect(cell.usage?.fraction == 0.25)
+        // Neutral, not threshold-colored: nothing promised this ceiling.
+        #expect(cell.usage?.bounded == false)
+        #expect(cell.detail?.hasPrefix("25% of 1 vCPU · Request not set · Limit not set") == true)
+    }
+
+    @Test func unspecdPodBarsAgainstOneGi() throws {
+        let cell = KindHelpers.podUsageCell(
+            try pod("unspecd"), context(cpu: "250m", memory: "512Mi"), resource: "memory"
+        )
+        #expect(cell.usage?.fraction == 0.5)
+        #expect(cell.detail?.hasPrefix("50% of 1Gi") == true)
+    }
+
+    /// A tiny reading on an idle cluster must read as tiny — the regression
+    /// that started this: 1m of usage filling a quarter of the rail.
+    @Test func idleUsageStaysNearEmpty() throws {
+        let cell = KindHelpers.podUsageCell(
+            try pod("idle"), context(cpu: "1m", memory: "4Mi", pod: "idle"), resource: "cpu"
+        )
+        #expect(cell.usage?.fraction == 0.001)
+        #expect(cell.detail?.hasPrefix("0% of 1 vCPU") == true)
+    }
+
+    @Test func declaredRequestStillWinsOverTheAssumption() throws {
+        let cell = KindHelpers.podUsageCell(
+            try pod("requested", requests: "{\"cpu\": \"100m\"}"),
+            context(cpu: "50m", memory: "10Mi", pod: "requested"),
+            resource: "cpu"
+        )
+        #expect(cell.usage?.fraction == 0.5)
+        #expect(cell.usage?.bounded == true)
+        #expect(cell.detail == "Request 100m · Limit not set")
+    }
+
+    @Test func workloadAssumesOneVCPUPerPod() throws {
+        let deployment = try object("""
+        {
+          "metadata": {"name": "web", "namespace": "demo", "uid": "u1"},
+          "spec": {"selector": {"matchLabels": {"app": "web"}}, "template": {"spec": {"containers": [{"name": "app"}]}}}
+        }
+        """)
+        var ctx = RowContext()
+        ctx.workloadUsage = ["demo/web": WorkloadUsage(
+            cpuMillis: 600, memoryBytes: 0, podCount: 3, hasMetrics: true, restarts: 0, lastRestart: nil
+        )]
+        let cell = KindHelpers.workloadUsageCell(deployment, ctx, resource: "cpu")
+        // 600m summed over 3 pods, against 1 vCPU each.
+        #expect(cell.usage?.fraction == 0.2)
+        #expect(cell.detail?.hasPrefix("20% of 1 vCPU per pod") == true)
+    }
+}
+
+// Node taints, in the `key=value:Effect` form kubectl taint speaks — valueless
+// taints (the control-plane one every cluster ships) must not render a stray
+// "=", and the effect drives how loudly the panel badges it.
+struct NodeTaintTests {
+    private func node(_ taints: String) throws -> KubeObject {
+        KubeObject(raw: try KubeJSON.decode(Data("""
+        {
+          "metadata": {"name": "node-0", "uid": "u1"},
+          "spec": {"taints": \(taints)}
+        }
+        """.utf8)))
+    }
+
+    @Test func valuelessTaintRendersWithoutAnEqualsSign() throws {
+        let taints = KindHelpers.nodeTaints(
+            try node("""
+            [{"key": "node-role.kubernetes.io/control-plane", "effect": "NoSchedule"}]
+            """)
+        )
+        #expect(taints == ["node-role.kubernetes.io/control-plane:NoSchedule"])
+    }
+
+    @Test func keyValueAndEffectAreJoinedInKubectlForm() throws {
+        let taints = KindHelpers.nodeTaints(
+            try node("""
+            [{"key": "workload", "value": "gpu", "effect": "NoExecute"},
+             {"key": "spot", "value": "true", "effect": "PreferNoSchedule"}]
+            """)
+        )
+        #expect(taints == ["workload=gpu:NoExecute", "spot=true:PreferNoSchedule"])
+    }
+
+    @Test func untaintedNodeHasNone() throws {
+        #expect(KindHelpers.nodeTaints(try node("[]")).isEmpty)
+        let bare = KubeObject(raw: try KubeJSON.decode(Data(#"{"metadata": {"name": "n", "uid": "u"}}"#.utf8)))
+        #expect(KindHelpers.nodeTaints(bare).isEmpty)
+    }
+
+    @Test func effectDrivesTheTone() {
+        #expect(KindHelpers.taintTone("NoExecute") == .bad)
+        #expect(KindHelpers.taintTone("NoSchedule") == .warn)
+        #expect(KindHelpers.taintTone("PreferNoSchedule") == .neutral)
+        #expect(KindHelpers.taintTone("") == .neutral)
+    }
+}

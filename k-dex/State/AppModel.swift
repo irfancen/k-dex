@@ -18,11 +18,25 @@ final class AppModel {
 
     private(set) var bootState: BootState = .loading
     private(set) var contexts: [KubeContext] = []
-    /// The kubeconfig's `current-context`, shown as a badge in the picker.
+    /// The kubeconfig's `current-context`. Only a fallback badge in the
+    /// picker now: once the app has been used, its own `lastUsedContext` is
+    /// what the picker marks, since kubectl's idea of "current" says nothing
+    /// about which cluster this app was last in.
     private(set) var kubeconfigCurrentContext: String?
+    /// The context this app last connected to, across launches.
+    private(set) var lastUsedContext: String? = ClusterStateStore.lastContext
     private(set) var selectedContext: String = ""
     private(set) var namespaces: [String] = []
-    private(set) var selectedNamespace: String?
+    /// Persists per context on every change, so returning to a cluster returns
+    /// to the namespace you were in. Writes are keyed by `selectedContext` and
+    /// skipped while disconnected — connect assigns the restored value
+    /// directly, never nil-then-restore, so nothing clobbers the stored choice.
+    private(set) var selectedNamespace: String? {
+        didSet {
+            guard !selectedContext.isEmpty, selectedNamespace != oldValue else { return }
+            ClusterStateStore.store(namespace: selectedNamespace, for: selectedContext)
+        }
+    }
     /// Every kind the cluster serves, discovered at connect time. Seeded with
     /// the curated built-ins so the sidebar renders before discovery lands.
     private(set) var kindCatalog: [ResourceKind] = ResourceKind.builtins
@@ -135,14 +149,6 @@ final class AppModel {
             metricsStatus: metricsStatus,
             now: now
         )
-        for metric in podMetrics.values {
-            context.maxPodCPUMillis = max(context.maxPodCPUMillis, Quantity.cpuMillicores(metric.cpu) ?? 0)
-            context.maxPodMemoryBytes = max(context.maxPodMemoryBytes, Quantity.memoryBytes(metric.memory) ?? 0)
-        }
-        for usage in workloadUsage.values where usage.hasMetrics {
-            context.maxWorkloadCPUMillis = max(context.maxWorkloadCPUMillis, usage.cpuMillis)
-            context.maxWorkloadMemoryBytes = max(context.maxWorkloadMemoryBytes, usage.memoryBytes)
-        }
         return context
     }
 
@@ -189,8 +195,10 @@ final class AppModel {
 
     /// Connects to a context from the cluster picker.
     func connect(to name: String) {
+        let restored = restoredNamespace(for: name)
         selectedContext = name
-        selectedNamespace = nil
+        rememberContext(name)
+        selectedNamespace = restored
         namespaces = []
         kindCatalog = ResourceKind.builtins
         sidebarSelection = .overview
@@ -207,6 +215,26 @@ final class AppModel {
             await self.loadKindCatalog()
         }
         Task { await self.checkKubectlVersion() }
+    }
+
+    private func rememberContext(_ name: String) {
+        lastUsedContext = name
+        ClusterStateStore.lastContext = name
+    }
+
+    /// The namespace a context should open in: the app's own memory of it,
+    /// falling back to All Namespaces for a cluster never visited (what every
+    /// connect did before there was any state to remember).
+    private func restoredNamespace(for context: String) -> String? {
+        switch ClusterStateStore.namespace(for: context) {
+        case .named(let namespace): return namespace
+        case .all, .unset: return nil
+        }
+    }
+
+    /// What the picker should say a context will open in.
+    func storedNamespace(for context: String) -> ClusterStateStore.StoredNamespace {
+        ClusterStateStore.namespace(for: context)
     }
 
     /// Returns to the cluster picker, tearing down the live connection.
@@ -252,8 +280,10 @@ final class AppModel {
 
     func switchContext(_ name: String) {
         guard name != selectedContext else { return }
+        let restored = restoredNamespace(for: name)
         selectedContext = name
-        selectedNamespace = nil
+        rememberContext(name)
+        selectedNamespace = restored
         namespaces = []
         kindCatalog = ResourceKind.builtins
         clearData()
@@ -374,6 +404,12 @@ final class AppModel {
             let loaded = try await Kubectl.namespaces(context: context)
             guard context == selectedContext else { return } // switched mid-fetch
             namespaces = loaded
+            // A remembered namespace can have been deleted since. Silently
+            // widening to All Namespaces beats filtering every list to a
+            // namespace the cluster no longer has.
+            if let current = selectedNamespace, !loaded.isEmpty, !loaded.contains(current) {
+                selectedNamespace = nil
+            }
         } catch {
             guard context == selectedContext else { return }
             // RBAC may forbid listing namespaces; keep the picker minimal.
