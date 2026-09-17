@@ -8,13 +8,17 @@ import Foundation
 // mirror rewrites every exec entry to point here, and this binary answers
 // kubectl's ExecCredential protocol from a cache the app fills.
 //
-// It deliberately cannot authenticate anything itself. Signing in is
-// interactive, and a credential plugin is spawned once per kubectl
-// invocation — a list refresh can start several within a second. If this
-// binary could start a sign-in, a token expiring mid-session would open a
-// browser window per subprocess. The app owns sign-in; this reports what the
-// app already obtained, and fails with a readable sentence when there is
-// nothing to report.
+// It deliberately cannot *authenticate*. Signing in is interactive, and a
+// credential plugin is spawned once per kubectl invocation — a single `get
+// nodes` was measured starting this binary five times in 66ms. If signing in
+// happened here, one expired session would open five browser windows. The app
+// owns sign-in; this turns what the app already obtained into the credential
+// kubectl asked for.
+//
+// For EKS that means *minting*, not replaying: the cache holds AWS role
+// credentials (good for about an hour) and each invocation signs a fresh
+// short-lived token from them. Signing is local HMAC — no network, no lock,
+// microseconds — which is what makes a five-spawn burst harmless.
 
 // MARK: Protocol types
 
@@ -30,7 +34,7 @@ struct ExecCredential: Encodable {
         let clientCertificateData: String?
         let clientKeyData: String?
         /// kubectl caches the credential in memory until this moment, which is
-        /// what keeps a burst of subprocesses from each reading this file.
+        /// what keeps a burst of subprocesses from each redoing this work.
         let expirationTimestamp: String?
     }
 }
@@ -41,6 +45,17 @@ struct CachedCredential: Decodable {
     let clientCertificateData: String?
     let clientKeyData: String?
     let expiresAt: Date?
+    /// Present for EKS: sign with these rather than serving a stored token.
+    let aws: AWSRoleCache?
+
+    struct AWSRoleCache: Decodable {
+        let accessKeyId: String
+        let secretAccessKey: String
+        let sessionToken: String?
+        let cluster: String
+        let region: String
+        let expiresAt: Date?
+    }
 }
 
 // MARK: Arguments
@@ -91,13 +106,50 @@ guard let data = try? Data(contentsOf: cacheURL) else {
 
 // No lock is taken. The app writes this file atomically — temp file, then
 // rename — so a reader either sees the whole previous credential or the whole
-// new one. A lock here would serialize every kubectl spawn behind the app's
+// new one. A lock would serialize every kubectl spawn behind the app's
 // refresh for no gain.
 let decoder = JSONDecoder()
 decoder.dateDecodingStrategy = .iso8601
 guard let cached = try? decoder.decode(CachedCredential.self, from: data) else {
     fail("stored credential for \"\(user)\" is unreadable; sign in again from K-Dex")
 }
+
+let formatter = ISO8601DateFormatter()
+
+// MARK: EKS — sign a fresh token from cached role credentials
+
+if let aws = cached.aws {
+    if let expiry = aws.expiresAt, expiry <= Date() {
+        fail("your AWS session for \"\(user)\" expired at \(expiry); sign in again from K-Dex")
+    }
+    let credentials = AWSCredentials(
+        accessKeyId: aws.accessKeyId,
+        secretAccessKey: aws.secretAccessKey,
+        sessionToken: aws.sessionToken,
+        expiration: aws.expiresAt
+    )
+    let token = AWSSigV4.eksToken(
+        cluster: aws.cluster, region: aws.region, credentials: credentials
+    )
+    // Expire the credential before the role credentials behind it do, so
+    // kubectl asks again while there is still something to sign with.
+    let horizon = Date().addingTimeInterval(14 * 60)
+    let expiry = min(horizon, aws.expiresAt ?? horizon)
+
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.withoutEscapingSlashes]
+    let credential = ExecCredential(status: .init(
+        token: token, clientCertificateData: nil, clientKeyData: nil,
+        expirationTimestamp: formatter.string(from: expiry)
+    ))
+    guard let output = try? encoder.encode(credential) else {
+        fail("could not encode the credential response")
+    }
+    FileHandle.standardOutput.write(output)
+    exit(0)
+}
+
+// MARK: Stored credentials — serve what the app put there
 
 if let expiry = cached.expiresAt, expiry <= Date() {
     // Saying so beats handing kubectl a dead token and letting it surface as
@@ -109,9 +161,6 @@ guard cached.token != nil || cached.clientCertificateData != nil else {
     fail("the stored credential for \"\(user)\" carries neither a token nor a client certificate")
 }
 
-// MARK: Answer
-
-let formatter = ISO8601DateFormatter()
 let credential = ExecCredential(status: .init(
     token: cached.token,
     clientCertificateData: cached.clientCertificateData,
