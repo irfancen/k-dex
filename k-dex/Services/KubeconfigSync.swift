@@ -31,8 +31,10 @@ enum KubeconfigSync {
     static func run() async -> Outcome {
         let source = KubeconfigLocation.path
 
-        let access = SandboxGrants.beginAccess()
-        defer { access.stop() }
+        // Idempotent, and deliberately not balanced by a stop here: access has
+        // to outlive this call, because the kubeconfig file watch holds a
+        // descriptor open for the whole session.
+        SandboxGrants.activate()
 
         guard let original = FileManager.default.contents(atPath: source) else {
             // Unreadable rather than absent is the common case here: the file

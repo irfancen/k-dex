@@ -106,10 +106,33 @@ nonisolated enum SandboxGrants {
 
     // MARK: Access
 
-    /// Opens every grant for the duration of one pass. Unbalanced starts leak
-    /// a sandbox extension per call, so the returned token must be stopped.
-    static func beginAccess() -> Access {
-        let opened = grantedDirectories().filter { $0.startAccessingSecurityScopedResource() }
-        return Access(urls: opened)
+    /// Grants currently open, keyed by path so `activate` is idempotent.
+    @MainActor private static var active: [String: URL] = [:]
+
+    /// Opens every grant and **keeps** it open.
+    ///
+    /// Scoping access to a single operation was wrong: a resolved
+    /// security-scoped URL only works between start and stop, and the
+    /// kubeconfig file watch holds a descriptor across the whole session. With
+    /// per-pass access the watch's `open(…, O_EVTONLY)` failed outside that
+    /// window and retried forever, so a kubeconfig rewritten by
+    /// `minikube start` was never noticed.
+    ///
+    /// Idempotent, so it can be called again after each new grant is recorded.
+    @MainActor
+    static func activate() {
+        for url in grantedDirectories() where active[url.path] == nil {
+            if url.startAccessingSecurityScopedResource() {
+                active[url.path] = url
+            }
+        }
+    }
+
+    /// Balances `activate`. Process exit would release these anyway; this
+    /// exists so a revoked grant can be dropped without relaunching.
+    @MainActor
+    static func deactivate() {
+        for url in active.values { url.stopAccessingSecurityScopedResource() }
+        active.removeAll()
     }
 }

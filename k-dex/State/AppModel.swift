@@ -23,6 +23,10 @@ final class AppModel {
     /// them and point at the direct download instead of letting the cluster
     /// fail with a confusing exec error.
     private(set) var unsupportedCredentials: [KubeconfigMirror.Unsupported] = []
+    /// Why the container's copy of the kubeconfig is out of date. Set only on
+    /// the automatic path, where the app cannot ask for a grant and so has to
+    /// say what it would have asked for.
+    private(set) var mirrorWarning: String?
     /// The kubeconfig's `current-context`. Only a fallback badge in the
     /// picker now: once the app has been used, its own `lastUsedContext` is
     /// what the picker marks, since kubectl's idea of "current" says nothing
@@ -165,12 +169,22 @@ final class AppModel {
     /// Bounded rather than a `while`: every pass either finishes, fails, or
     /// trades one unreadable directory for one panel, and a user who keeps
     /// cancelling must not be asked forever.
-    private func synchronizeMirror() async -> String? {
+    /// - Parameter allowPrompts: false on the automatic path. A kubeconfig
+    ///   rewritten in the background must not throw an open panel over
+    ///   whatever the user is doing; a grant it cannot get silently leaves the
+    ///   previous mirror in place and reports why.
+    private func synchronizeMirror(allowPrompts: Bool = true) async -> String? {
         for _ in 0..<4 {
             switch await KubeconfigSync.run() {
             case .synced(_, let unsupported):
                 unsupportedCredentials = unsupported
                 return nil
+
+            case .needsKubeconfigAccess where !allowPrompts:
+                return "K-Dex no longer has access to your kubeconfig."
+
+            case .needsAccess(let directory, _) where !allowPrompts:
+                return "Your kubeconfig now points at certificates in \(directory.path), which K-Dex has not been allowed to read."
 
             case .needsKubeconfigAccess:
                 let directory = URL(fileURLWithPath: KubeconfigLocation.path).deletingLastPathComponent()
@@ -196,9 +210,50 @@ final class AppModel {
         return "Could not assemble a usable kubeconfig after several attempts."
     }
 
+    @ObservationIgnored private var kubeconfigMonitor: FileChangeMonitor?
+
+    /// Watches the user's kubeconfig for the life of the app.
+    ///
+    /// Previously this lived on the cluster picker and was torn down when the
+    /// picker disappeared, so a kubeconfig rewritten *while connected* went
+    /// unnoticed. That is the common case, not the rare one: `minikube stop &&
+    /// minikube start` issues a new port and a new client certificate, and
+    /// sandboxed the app is then holding a mirror describing a cluster that no
+    /// longer exists — every command fails until relaunch.
+    private func startKubeconfigWatch() {
+        guard kubeconfigMonitor == nil else { return }
+        let monitor = FileChangeMonitor(path: KubeconfigLocation.path) { [weak self] in
+            Task { await self?.kubeconfigChanged() }
+        }
+        monitor.start()
+        kubeconfigMonitor = monitor
+    }
+
+    /// Rebuilds the mirror, then catches the UI up.
+    private func kubeconfigChanged() async {
+        if SandboxPaths.isSandboxed {
+            // Without this the reload below would re-read the stale mirror and
+            // conclude nothing had changed.
+            if let failure = await synchronizeMirror(allowPrompts: false) {
+                mirrorWarning = failure
+                return
+            }
+            mirrorWarning = nil
+        }
+        await reloadContexts()
+        // A live connection is pointed at the old server until it re-lists;
+        // the watch subprocess is already talking to a closed port.
+        if bootState == .ready { requestRefresh() }
+    }
+
     func bootstrap() async {
         guard bootState == .loading else { return }
         startClock()
+        // Before the watch: arming it opens a descriptor on the user's
+        // kubeconfig, which the container only permits while the grant is
+        // active.
+        if SandboxPaths.isSandboxed { SandboxGrants.activate() }
+        startKubeconfigWatch()
         guard Kubectl.isAvailable else {
             bootState = .missingKubectl
             return
