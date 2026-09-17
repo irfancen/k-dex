@@ -32,21 +32,25 @@ struct RootView: View {
             model.isAppActive = false
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if let warning = model.kubectlVersionWarning {
-                HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                    Text(warning)
-                        .font(.caption)
-                        .lineLimit(2)
-                    Spacer()
-                    Button("Dismiss") { model.kubectlVersionWarning = nil }
+            VStack(spacing: 0) {
+                // The mirror is stale and the app could not ask for the grant
+                // itself, because the re-sync runs unattended. Dismissing is
+                // not offered: every command keeps failing until it is fixed,
+                // so the only useful button is the one that fixes it.
+                if let warning = model.mirrorWarning {
+                    WarningBar(message: warning, icon: "lock.trianglebadge.exclamationmark.fill") {
+                        Button("Grant Access…") {
+                            Task { await model.resolveMirrorWarning() }
+                        }
                         .controlSize(.small)
+                    }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(.bar)
-                .overlay(alignment: .top) { Divider() }
+                if let warning = model.kubectlVersionWarning {
+                    WarningBar(message: warning, icon: "exclamationmark.triangle.fill") {
+                        Button("Dismiss") { model.kubectlVersionWarning = nil }
+                            .controlSize(.small)
+                    }
+                }
             }
         }
     }
@@ -111,5 +115,29 @@ private struct ToolbarConfigurator: NSViewRepresentable {
         toolbar.displayMode = .iconOnly
         toolbar.allowsUserCustomization = false
         toolbar.allowsDisplayModeCustomization = false
+    }
+}
+
+/// One line of trouble at the bottom of the window, with the action that
+/// addresses it. Shared so a second warning cannot drift from the first.
+private struct WarningBar<Action: View>: View {
+    let message: String
+    let icon: String
+    @ViewBuilder let action: Action
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .foregroundStyle(.orange)
+            Text(message)
+                .font(.caption)
+                .lineLimit(2)
+            Spacer()
+            action
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(.bar)
+        .overlay(alignment: .top) { Divider() }
     }
 }
