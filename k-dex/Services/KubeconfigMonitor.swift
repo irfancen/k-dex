@@ -13,7 +13,10 @@ enum KubeconfigLocation {
            let first = env.split(separator: ":").first, !first.isEmpty {
             return (String(first) as NSString).expandingTildeInPath
         }
-        return NSHomeDirectory() + "/.kube/config"
+        // The user's home, not the container's: under App Sandbox
+        // NSHomeDirectory() points inside the container, where there is no
+        // kubeconfig and never will be.
+        return SandboxPaths.realHome + "/.kube/config"
     }
 }
 
