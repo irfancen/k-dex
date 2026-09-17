@@ -13,7 +13,11 @@ enum KubeconfigSync {
     /// opening a panel from here would bury user interaction inside a
     /// refresh path that also runs unattended.
     enum Outcome: Equatable {
-        case synced(inlined: Int, unsupported: [KubeconfigMirror.Unsupported])
+        case synced(
+            inlined: Int,
+            requirements: [KubeconfigMirror.CredentialRequirement],
+            unsupported: [KubeconfigMirror.Unsupported]
+        )
         /// No grant yet for the directory holding the kubeconfig itself.
         case needsKubeconfigAccess
         /// The config points at certificates under a directory no grant
@@ -106,6 +110,10 @@ enum KubeconfigSync {
             return .failed("Could not write the mirrored kubeconfig: \(error.localizedDescription)")
         }
 
-        return .synced(inlined: output.inlined.count, unsupported: output.unsupported)
+        return .synced(
+            inlined: output.inlined.count,
+            requirements: output.requirements,
+            unsupported: output.unsupported
+        )
     }
 }

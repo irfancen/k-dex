@@ -93,10 +93,15 @@ let provider = value(of: "--provider", in: arguments) ?? "unknown"
 let support = ProcessInfo.processInfo.environment["KDEX_AUTH_CACHE_DIR"].map { URL(fileURLWithPath: $0) }
     ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
     ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
+// A kubeconfig user name is often an EKS ARN — `arn:aws:eks:…:cluster/name` —
+// and that slash would turn the file name into a subdirectory that no one ever
+// creates, so every lookup would miss and report "not signed in" forever.
+// `CredentialCache.fileName(for:)` performs the identical substitution; the two
+// targets share no code, so this line and that one are the contract.
 let cacheURL = support
     .appendingPathComponent("K-Dex", isDirectory: true)
     .appendingPathComponent("credentials", isDirectory: true)
-    .appendingPathComponent("\(user).json")
+    .appendingPathComponent(user.replacingOccurrences(of: "/", with: "_") + ".json")
 
 guard let data = try? Data(contentsOf: cacheURL) else {
     fail("""

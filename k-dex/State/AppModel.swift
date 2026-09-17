@@ -27,6 +27,29 @@ final class AppModel {
     /// the automatic path, where the app cannot ask for a grant and so has to
     /// say what it would have asked for.
     private(set) var mirrorWarning: String?
+    /// Users the shim will be asked about, recovered from the kubeconfig while
+    /// mirroring it — the only place the EKS cluster and region are written.
+    private(set) var credentialRequirements: [KubeconfigMirror.CredentialRequirement] = []
+    /// Non-nil while the sign-in sheet is up. Set only by a button press:
+    /// a credential plugin is spawned several times per command, so anything
+    /// automatic here would be automatic several times over.
+    var signInRequest: SignInRequest?
+
+    struct SignInRequest: Identifiable {
+        let id = UUID()
+        let user: String
+        let target: KubeconfigMirror.EKSTarget
+    }
+
+    /// The EKS credential the connected cluster needs and does not have.
+    var pendingEKSSignIn: (user: String, target: KubeconfigMirror.EKSTarget)? {
+        guard SandboxPaths.isSandboxed, !selectedContext.isEmpty,
+              let context = contexts.first(where: { $0.name == selectedContext }),
+              let requirement = credentialRequirements.first(where: { $0.user == context.user }),
+              let target = requirement.eks,
+              CredentialCache.needsSignIn(for: requirement.user) else { return nil }
+        return (requirement.user, target)
+    }
     /// The kubeconfig's `current-context`. Only a fallback badge in the
     /// picker now: once the app has been used, its own `lastUsedContext` is
     /// what the picker marks, since kubectl's idea of "current" says nothing
@@ -176,7 +199,8 @@ final class AppModel {
     private func synchronizeMirror(allowPrompts: Bool = true) async -> String? {
         for _ in 0..<4 {
             switch await KubeconfigSync.run() {
-            case .synced(_, let unsupported):
+            case .synced(_, let requirements, let unsupported):
+                credentialRequirements = requirements
                 unsupportedCredentials = unsupported
                 return nil
 
@@ -244,6 +268,15 @@ final class AppModel {
         // A live connection is pointed at the old server until it re-lists;
         // the watch subprocess is already talking to a closed port.
         if bootState == .ready { requestRefresh() }
+    }
+
+    /// A sign-in finished and the cache now holds a credential the shim can
+    /// use. The failing commands were already retried into oblivion, so the
+    /// list needs pushing rather than waiting for the next tick.
+    func credentialsChanged() {
+        signInRequest = nil
+        guard bootState == .ready else { return }
+        requestRefresh()
     }
 
     /// The banner's action: retry the sync, this time allowed to ask.
