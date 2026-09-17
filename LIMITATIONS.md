@@ -7,31 +7,49 @@ that remain — and why each one is deliberately not being fixed right now.
 
 | Limitation | Nature | Revisit when |
 | --- | --- | --- |
-| No Mac App Store distribution | Structural | A native auth layer is worth funding |
+| No Mac App Store build yet | Built, not released | Packaging and review are done |
 | One cluster at a time | Deferred refactor | Multi-cluster is actually wanted |
 | Overview & Helm still poll | Deliberate trade-off | Dashboards feel stale in practice |
 | Metrics lag by 15–60 s | Upstream (metrics-server) | A richer telemetry source is added |
 | Watch events carry managedFields | Upstream (kubectl) | Large clusters make events heavy |
 | Everything runs through kubectl | Philosophy, not a bug | Never — it *is* the architecture |
 
-## No Mac App Store distribution (App Sandbox stays off)
+## No Mac App Store build yet (the released build keeps App Sandbox off)
 
-**Why it can't be fixed now:** the sandbox forbids exactly what the
-architecture requires. K-Dex must execute arbitrary user-installed binaries —
-kubectl itself, plus whatever auth plugin the kubeconfig names
-(`aws`, `gke-gcloud-auth-plugin`, `kubelogin`, …) — and those plugins in turn
-read `~/.kube`, write their own token caches, and open network connections.
-Sandboxed apps may only spawn helpers they ship and sign; there is no
-entitlement for "run whatever the user has in `/opt/homebrew/bin`".
+**What ships today:** the notarized direct download, unsandboxed, which is
+what lets any kubeconfig work — including auth plugins K-Dex has never heard
+of. That is a feature of this build, not an accident, and it is not going
+away.
 
-**What fixing it would take:** an in-process Kubernetes client with its own
-implementations of exec-plugin auth, OIDC refresh, and client certificates —
-abandoning the "kubectl owns auth" foundation. That's the embedded-library
-approach whose costs are laid out in the architecture doc, made worse by
-Swift having no mature client library.
+**What used to be written here** was that the store was closed off
+structurally, because a sandboxed app cannot execute the user's own kubectl or
+auth plugins and the only way out was an in-process Kubernetes client. The
+first half is true; the conclusion was wrong. A sandboxed build does not need
+to reach outside its container — it needs to bring the work inside. kubectl is
+bundled and inherit-signed, the kubeconfig is mirrored into the container with
+certificates inlined, and a bundled shim answers kubectl's own ExecCredential
+protocol with credentials the app obtained natively. `ARCHITECTURE.md` §9
+describes the mechanism.
 
-**Interim answer:** notarized direct distribution with the hardened runtime,
-which is how comparable tools (including Aptakube and Lens) ship on macOS.
+**Where it actually stands:** the mechanism is built and has been exercised
+against real clusters — certificate-based (minikube) and EKS via AWS IAM
+Identity Center, with no AWS CLI installed. It is **not released**: it is not
+yet part of the Xcode project as a build configuration, nothing is submitted,
+and no App Review has happened. Treat it as proven, not shipped.
+
+**What stays impossible in a sandboxed build,** permanently and by design:
+
+- **Credential plugins with no built-in equivalent** — corporate SSO wrappers,
+  Teleport `tsh`, Vault helpers, cloud CLIs not natively implemented. The app
+  names these clusters and points at the direct download rather than failing
+  obscurely.
+- **Wrapping other CLIs as features** — Helm write operations would mean
+  reimplementing Helm. Browsing releases stays, since that is native secret
+  decoding.
+- **Terminal-identical behaviour** — the app signs in separately from your
+  shell, so sessions and error text differ.
+- **Silent file access** — one grant per directory the kubeconfig references,
+  which for minikube means `~/.minikube` as well as `~/.kube`.
 
 ## One cluster at a time
 

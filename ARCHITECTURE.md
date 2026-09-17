@@ -189,12 +189,43 @@ Two features hold child processes open instead of running one-shot commands:
 
 ### 9. Sandbox posture
 
-App Sandbox is **disabled**. This is a hard requirement of the architecture:
-the app must read `~/.kube/config`, execute arbitrary user-installed binaries
-(kubectl and whatever auth plugins the kubeconfig invokes), and let those
-binaries do network I/O and write their own caches. The flip side is that the
-app itself holds no secrets and opens no sockets — its security boundary is
-exactly your terminal's.
+In the released build App Sandbox is **disabled**, and that is what makes the
+compatibility guarantee possible: the app reads `~/.kube/config`, executes
+whatever binaries the kubeconfig names — kubectl plus any auth plugin,
+however exotic — and lets them do their own network I/O and caching. The
+flip side is that the app itself holds no secrets and opens no sockets; its
+security boundary is exactly your terminal's.
+
+What the sandbox forbids is *executing arbitrary user-installed binaries*, not
+the delegation model itself. A sandboxed configuration therefore exists in
+development, and works by moving each of those three needs inside the
+container rather than giving them up:
+
+- **The binaries are the ones the app ships.** kubectl is bundled and signed
+  with `com.apple.security.inherit`, so it runs inside the app's container.
+  Nothing outside it is reachable — `/opt/homebrew/bin` is not merely
+  unreadable but invisible.
+- **The kubeconfig is mirrored inward.** The user grants read access to the
+  directories their config references; the app copies the file into the
+  container, asks the bundled kubectl to parse it (`config view --raw -o
+  json`, which succeeds even when the certificates it names are unreachable),
+  then rewrites it: certificate files inlined as `*-data`, token files as
+  `token`, and every `exec` entry repointed at a bundled shim. The result is
+  written as JSON, which kubectl's YAML loader accepts. The user's own
+  kubeconfig is never written to, and a file watch re-mirrors it when it
+  changes.
+- **Auth is performed by the app, not by a plugin.** `kdex-auth` speaks
+  kubectl's ExecCredential protocol and serves what the app has already
+  obtained. For EKS the app performs the AWS IAM Identity Center device flow
+  itself and caches *role credentials*; the shim signs a fresh SigV4 token per
+  invocation, which matters because kubectl spawns a credential plugin several
+  times per command. The shim deliberately cannot authenticate — otherwise
+  one expired session would open a browser window per spawn.
+
+The cost is permanent and by design: a credential plugin with no built-in
+equivalent — a corporate SSO wrapper, Teleport, a Vault helper — cannot run
+in the sandboxed build. Those clusters are named explicitly and pointed at the
+direct download. See `LIMITATIONS.md`.
 
 ## How Aptakube does it differently
 
@@ -268,8 +299,9 @@ integration effort for independence from the kubectl binary.
   handshake. The watch removed this from the hot path, not from the model.
 - **Hard dependency on the kubectl binary** and its version quirks (a boot
   check warns when it's too old for the flags the app uses).
-- **Sandbox must stay off**, so distribution through the Mac App Store is
-  effectively ruled out.
+- **The released build runs unsandboxed**, which is what lets it drive *your*
+  kubectl and *your* auth plugins. A sandboxed configuration exists (§9) but
+  trades that away: it can only run what it ships.
 - **One-shot commands can't multiplex.** Simultaneous multi-cluster would be
   cheap on the watch side (one subprocess per cluster) but N× the churn for
   everything else — and the single-cluster state model is the real blocker.
