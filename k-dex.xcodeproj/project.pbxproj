@@ -21,7 +21,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		8366EE0A301364D40084F6DF /* k-dex.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = "k-dex.app"; path = "K-Dex.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		8366EE0A301364D40084F6DF /* K-Dex.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "K-Dex.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		83FFFAD830285E1A0047D97A /* K-DexTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "K-DexTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -69,7 +69,7 @@
 		8366EE0B301364D40084F6DF /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				8366EE0A301364D40084F6DF /* k-dex.app */,
+				8366EE0A301364D40084F6DF /* K-Dex.app */,
 				83FFFAD830285E1A0047D97A /* K-DexTests.xctest */,
 			);
 			name = Products;
@@ -99,7 +99,7 @@
 				8366EEB2301364D40084F6DF /* Sparkle */,
 			);
 			productName = "k-dex";
-			productReference = 8366EE0A301364D40084F6DF /* k-dex.app */;
+			productReference = 8366EE0A301364D40084F6DF /* K-Dex.app */;
 			productType = "com.apple.product-type.application";
 		};
 		83FFFAD730285E1A0047D97A /* K-DexTests */ = {
@@ -363,6 +363,7 @@
 				ENABLE_USER_SELECTED_FILES = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -396,6 +397,7 @@
 				ENABLE_USER_SELECTED_FILES = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
