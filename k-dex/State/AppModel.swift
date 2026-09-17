@@ -18,6 +18,11 @@ final class AppModel {
 
     private(set) var bootState: BootState = .loading
     private(set) var contexts: [KubeContext] = []
+    /// Credentials the sandboxed build cannot serve — a corporate SSO wrapper,
+    /// Teleport, anything with no built-in equivalent. Kept so the UI can name
+    /// them and point at the direct download instead of letting the cluster
+    /// fail with a confusing exec error.
+    private(set) var unsupportedCredentials: [KubeconfigMirror.Unsupported] = []
     /// The kubeconfig's `current-context`. Only a fallback badge in the
     /// picker now: once the app has been used, its own `lastUsedContext` is
     /// what the picker marks, since kubectl's idea of "current" says nothing
@@ -154,11 +159,55 @@ final class AppModel {
 
     // MARK: Lifecycle
 
+    /// Brings the container's kubeconfig copy up to date, turning each refusal
+    /// into one grant prompt. Returns an error message, or nil on success.
+    ///
+    /// Bounded rather than a `while`: every pass either finishes, fails, or
+    /// trades one unreadable directory for one panel, and a user who keeps
+    /// cancelling must not be asked forever.
+    private func synchronizeMirror() async -> String? {
+        for _ in 0..<4 {
+            switch await KubeconfigSync.run() {
+            case .synced(_, let unsupported):
+                unsupportedCredentials = unsupported
+                return nil
+
+            case .needsKubeconfigAccess:
+                let directory = URL(fileURLWithPath: KubeconfigLocation.path).deletingLastPathComponent()
+                guard GrantPanel.requestAccess(
+                    to: directory,
+                    explanation: "K-Dex reads your kubeconfig to find your clusters. Grant access to this folder once; it is never written to."
+                ) else {
+                    return "K-Dex needs access to \(directory.path) to read your kubeconfig."
+                }
+
+            case .needsAccess(let directory, _):
+                guard GrantPanel.requestAccess(
+                    to: directory,
+                    explanation: "Your kubeconfig points at certificates in this folder. K-Dex needs to read them to connect."
+                ) else {
+                    return "Your kubeconfig points at certificates in \(directory.path), which K-Dex has not been allowed to read."
+                }
+
+            case .failed(let message):
+                return message
+            }
+        }
+        return "Could not assemble a usable kubeconfig after several attempts."
+    }
+
     func bootstrap() async {
         guard bootState == .loading else { return }
         startClock()
         guard Kubectl.isAvailable else {
             bootState = .missingKubectl
+            return
+        }
+        // Sandboxed, the child kubectl reads a mirror of the kubeconfig that
+        // does not exist until this runs — so it has to come before the first
+        // command, not alongside it.
+        if SandboxPaths.isSandboxed, let failure = await synchronizeMirror() {
+            bootState = .failed(failure)
             return
         }
         do {
