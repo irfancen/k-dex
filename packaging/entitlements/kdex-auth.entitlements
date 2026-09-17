@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Exactly two keys, and deliberately no more. `inherit` means this
+	     helper runs inside the parent's container with the parent's
+	     capabilities, and the sandbox refuses to grant a child anything its
+	     parent lacks — so adding entitlements here would not widen access,
+	     it would only make the helper fail to launch. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.inherit</key>
+	<true/>
+</dict>
+</plist>

@@ -147,7 +147,7 @@ nonisolated enum ProcessRunner {
         if let extra = defaults.string(forKey: SettingsKeys.extraPath), !extra.isEmpty {
             path = extra + ":" + path
         }
-        let home = NSHomeDirectory()
+        let home = SandboxPaths.realHome
         for candidate in ["/opt/homebrew/bin", "/usr/local/bin", home + "/bin", home + "/.local/bin", home + "/.krew/bin"]
         where !path.split(separator: ":").contains(Substring(candidate)) {
             path += ":" + candidate
@@ -156,11 +156,34 @@ nonisolated enum ProcessRunner {
         if let kubeconfig = defaults.string(forKey: SettingsKeys.kubeconfigPath), !kubeconfig.isEmpty {
             env["KUBECONFIG"] = (kubeconfig as NSString).expandingTildeInPath
         }
+
+        // Inside a container none of the above is reachable by the child, and
+        // the settings override names a file it cannot open. Point kubectl at
+        // the mirror instead, and give it a HOME it may actually write to —
+        // otherwise it tries to cache discovery under the real ~/.kube and
+        // fails every call with a permission error rather than a clear one.
+        if SandboxPaths.isSandboxed {
+            env["KUBECONFIG"] = SandboxPaths.mirroredKubeconfig.path
+            env["HOME"] = SandboxPaths.childHome
+        }
         return env
     }
 
     static func resolveExecutable(_ name: String) -> String? {
         let fm = FileManager.default
+
+        // Inside a container the only executables that exist are the ones the
+        // app ships: /opt/homebrew and friends are not merely unreadable but
+        // invisible, and a Settings override naming the user's own kubectl
+        // would fail at exec with an ENOENT that reads like a missing file
+        // rather than a sandbox boundary. Resolve to the bundled copy or to
+        // nothing, so the caller reports one clear reason.
+        if SandboxPaths.isSandboxed {
+            let bundled = Bundle.main.bundleURL
+                .appendingPathComponent("Contents/Helpers/\(name)").path
+            return fm.isExecutableFile(atPath: bundled) ? bundled : nil
+        }
+
         if name == "kubectl" {
             if let override = UserDefaults.standard.string(forKey: SettingsKeys.kubectlPath), !override.isEmpty {
                 let path = (override as NSString).expandingTildeInPath

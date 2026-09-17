@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+
+	<!-- Talking to API servers. Every request the app makes is kubectl's,
+	     but the child inherits this container, so the capability is declared
+	     here or nowhere. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+
+	<!-- kubectl port-forward binds a local listening socket. Without this a
+	     forward fails at bind() rather than at connect, which reads like a
+	     cluster problem. -->
+	<key>com.apple.security.network.server</key>
+	<true/>
+
+	<!-- The kubeconfig and the certificates it names, chosen by the user in
+	     an open panel. Read-only on purpose: the app mirrors the config into
+	     its container and never writes back to the original. -->
+	<key>com.apple.security.files.user-selected.read-only</key>
+	<true/>
+
+	<!-- Grants have to survive relaunch, or the user re-picks their
+	     kubeconfig every time the app starts. -->
+	<key>com.apple.security.files.bookmarks.app-scope</key>
+	<true/>
+</dict>
+</plist>
