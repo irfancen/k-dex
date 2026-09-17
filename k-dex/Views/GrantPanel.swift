@@ -30,6 +30,9 @@ enum GrantPanel {
         guard panel.runModal() == .OK, let chosen = panel.url else { return false }
         do {
             try SandboxGrants.record(chosen)
+            // Recording only stores the bookmark; the grant is not usable
+            // until it is opened, and the caller reads files immediately.
+            SandboxGrants.activate()
             return true
         } catch {
             NSAlert(error: error).runModal()

@@ -124,19 +124,10 @@ struct ClusterPickerView: View {
             .padding(10)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Kubeconfig edits (new clusters, removed ones) show up on their own
-        // while the picker is visible: a file watch, not subprocess polling —
-        // immediate on change, idle otherwise. Torn down on disappear.
-        .task {
-            let monitor = FileChangeMonitor(path: KubeconfigLocation.path) {
-                Task { await model.reloadContexts() }
-            }
-            monitor.start()
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(3600))
-            }
-            monitor.stop()
-        }
+        // Kubeconfig edits (new clusters, removed ones) show up on their own —
+        // AppModel watches the file for the life of the app, because a
+        // rewrite while *connected* matters just as much as one while the
+        // picker is open, and a picker-scoped watch missed exactly that.
     }
 }
 
