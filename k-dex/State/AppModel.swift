@@ -246,6 +246,14 @@ final class AppModel {
         if bootState == .ready { requestRefresh() }
     }
 
+    /// The banner's action: retry the sync, this time allowed to ask.
+    func resolveMirrorWarning() async {
+        mirrorWarning = await synchronizeMirror(allowPrompts: true)
+        guard mirrorWarning == nil else { return }
+        await reloadContexts()
+        if bootState == .ready { requestRefresh() }
+    }
+
     func bootstrap() async {
         guard bootState == .loading else { return }
         startClock()
