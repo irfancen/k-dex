@@ -50,8 +50,8 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design and
 [LIMITATIONS.md](LIMITATIONS.md) for known trade-offs.
 
 Requirements: macOS 26+. kubectl is bundled with the app. App Sandbox is
-disabled because the app must read `~/.kube` and spawn kubectl and your auth
-plugins.
+disabled in this build so the app can read `~/.kube` and run kubectl and your
+own auth plugins, whatever they are.
 
 ## Install
 
