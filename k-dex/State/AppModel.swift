@@ -142,7 +142,7 @@ final class AppModel {
     var listRowContext: RowContext { makeRowContext(now: Date()) }
 
     private func makeRowContext(now: Date) -> RowContext {
-        var context = RowContext(
+        let context = RowContext(
             podMetrics: podMetrics,
             nodeMetrics: nodeMetrics,
             workloadUsage: workloadUsage,
