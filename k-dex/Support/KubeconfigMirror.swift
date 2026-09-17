@@ -24,11 +24,35 @@ nonisolated enum KubeconfigMirror {
         let reason: String
     }
 
+    /// Everything needed to sign an EKS token, recovered while rewriting.
+    ///
+    /// The original exec entry is the only place this is written down —
+    /// `aws eks get-token --cluster-name X --region Y` — and the rewrite drops
+    /// those args, so they are read out first. The user name is usually the
+    /// cluster ARN as well, which carries the account id the exec args omit.
+    struct EKSTarget: Sendable, Equatable {
+        let cluster: String
+        let region: String
+        /// Which AWS account to request role credentials from, when the name
+        /// was an ARN rather than a bare cluster name.
+        let accountID: String?
+    }
+
+    /// A user the shim will be asked about, and what the app must obtain
+    /// before it can answer.
+    struct CredentialRequirement: Sendable, Equatable {
+        let user: String
+        let provider: String
+        let eks: EKSTarget?
+    }
+
     struct Output: Sendable, Equatable {
         /// The sanitized config, ready to serialize into the container.
         let config: JSONValue
         /// Paths whose contents were inlined.
         let inlined: [String]
+        /// Users whose credentials the app has to supply, in kubeconfig order.
+        let requirements: [CredentialRequirement]
         /// Paths the config referenced that the caller could not supply —
         /// a revoked grant, or a cert deleted since the last sync.
         let missing: [String]
@@ -114,6 +138,7 @@ nonisolated enum KubeconfigMirror {
         var inlined: [String] = []
         var missing: [String] = []
         var unsupported: [Unsupported] = []
+        var requirements: [CredentialRequirement] = []
 
         var root = config.object
         // `kind`/`apiVersion` are what make this parseable as a Config at all,
@@ -151,9 +176,11 @@ nonisolated enum KubeconfigMirror {
                 into: &user, files: files, baseDirectory: baseDirectory,
                 inlined: &inlined, missing: &missing
             )
-            rewriteCredentialPlugin(
+            if let requirement = rewriteCredentialPlugin(
                 into: &user, name: name, shim: shim, unsupported: &unsupported
-            )
+            ) {
+                requirements.append(requirement)
+            }
 
             wrapper["user"] = .object(user)
             return .object(wrapper)
@@ -162,6 +189,7 @@ nonisolated enum KubeconfigMirror {
         return Output(
             config: .object(root),
             inlined: inlined,
+            requirements: requirements,
             missing: missing,
             unsupported: unsupported
         )
@@ -232,6 +260,44 @@ nonisolated enum KubeconfigMirror {
         }
     }
 
+    /// `arn:aws:eks:<region>:<account>:cluster/<name>` — the shape
+    /// `aws eks update-kubeconfig` uses for context, cluster and user names,
+    /// and the only place the account id appears.
+    static func parseEKSARN(_ value: String) -> EKSTarget? {
+        let parts = value.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count >= 6, parts[0] == "arn", parts[2] == "eks",
+              parts[5].hasPrefix("cluster/") else { return nil }
+        let name = String(parts[5].dropFirst("cluster/".count))
+        guard !name.isEmpty, !parts[3].isEmpty else { return nil }
+        return EKSTarget(cluster: name, region: parts[3], accountID: parts[4].isEmpty ? nil : parts[4])
+    }
+
+    /// Reads the cluster and region back out of the plugin invocation the
+    /// user's kubeconfig declared, before the rewrite discards it.
+    private static func eksTarget(execArgs: [String], userName: String) -> EKSTarget? {
+        func argument(_ flags: [String]) -> String? {
+            for flag in flags {
+                if let index = execArgs.firstIndex(of: flag),
+                   execArgs.index(after: index) < execArgs.endIndex {
+                    return execArgs[execArgs.index(after: index)]
+                }
+            }
+            return nil
+        }
+        // `aws eks get-token --cluster-name X`, or aws-iam-authenticator's
+        // `token -i X`.
+        let cluster = argument(["--cluster-name", "--cluster-id", "-i"])
+        let region = argument(["--region"])
+
+        // The name is usually the ARN, which fills in whatever the args left
+        // out — most importantly the account id, which no flag carries.
+        let fromARN = parseEKSARN(userName)
+
+        guard let name = cluster ?? fromARN?.cluster,
+              let resolvedRegion = region ?? fromARN?.region else { return nil }
+        return EKSTarget(cluster: name, region: resolvedRegion, accountID: fromARN?.accountID)
+    }
+
     /// Legacy `auth-provider` names map to the same native providers.
     private static func provider(forAuthProvider name: String) -> String? {
         switch name {
@@ -247,26 +313,33 @@ nonisolated enum KubeconfigMirror {
     /// The user's own plugin is unreachable from inside the container by
     /// design, so the entry is rewritten rather than removed: kubectl keeps
     /// driving its own ExecCredential protocol, and `kdex-auth` answers.
+    @discardableResult
     private static func rewriteCredentialPlugin(
         into user: inout [String: JSONValue],
         name: String,
         shim: String,
         unsupported: inout [Unsupported]
-    ) {
+    ) -> CredentialRequirement? {
         var mechanism: String?
         var resolvedProvider: String?
+        var eks: EKSTarget?
 
         if let exec = user["exec"], !exec.isNull {
             let command = exec["command"].stringValue
             mechanism = "exec: \(command)"
             resolvedProvider = provider(forCommand: command)
+            if resolvedProvider == "eks" {
+                eks = eksTarget(
+                    execArgs: exec["args"].array.map(\.stringValue), userName: name
+                )
+            }
         } else if let legacy = user["auth-provider"], !legacy.isNull {
             let providerName = legacy["name"].stringValue
             mechanism = "auth-provider: \(providerName)"
             resolvedProvider = provider(forAuthProvider: providerName)
         }
 
-        guard let mechanism else { return }
+        guard let mechanism else { return nil }
 
         user["auth-provider"] = nil
         user["exec"] = .object([
@@ -294,5 +367,9 @@ nonisolated enum KubeconfigMirror {
                 reason: "This credential plugin has no built-in equivalent, so the sandboxed build can't sign in with it. Use the direct download, which runs your own plugin."
             ))
         }
+
+        return CredentialRequirement(
+            user: name, provider: resolvedProvider ?? "unknown", eks: eks
+        )
     }
 }

@@ -31,8 +31,27 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
             model.isAppActive = false
         }
+        // Requirement 16: the flow starts here, on a press, and nowhere else.
+        .sheet(item: Binding(get: { model.signInRequest },
+                             set: { model.signInRequest = $0 })) { request in
+            AWSSignInSheet(
+                model: AWSSignInModel(user: request.user, target: request.target),
+                onFinished: { model.credentialsChanged() }
+            )
+        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 0) {
+                if let pending = model.pendingEKSSignIn {
+                    WarningBar(
+                        message: "\(pending.target.cluster) needs an AWS sign-in.",
+                        icon: "person.badge.key.fill"
+                    ) {
+                        Button("Sign in to AWS…") {
+                            model.signInRequest = .init(user: pending.user, target: pending.target)
+                        }
+                        .controlSize(.small)
+                    }
+                }
                 // The mirror is stale and the app could not ask for the grant
                 // itself, because the re-sync runs unattended. Dismissing is
                 // not offered: every command keeps failing until it is fixed,
