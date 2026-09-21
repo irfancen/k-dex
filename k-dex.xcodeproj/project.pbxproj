@@ -214,7 +214,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\n# Only the sandboxed configuration ships a credential helper. Unsandboxed the\n# app runs the user's own auth plugins, and the shim would be dead weight that\n# cannot even launch: inherit entitlements require a sandboxed parent.\nif [ \"${ENABLE_APP_SANDBOX}\" != \"YES\" ]; then exit 0; fi\nHELPERS=\"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Helpers\"\nENT=\"${SRCROOT}/packaging/entitlements/kdex-auth.entitlements\"\nmkdir -p \"${HELPERS}\"\n# Compiled here rather than as a second target: the shim has to stay out of\n# k-dex/, which is a synchronized group, or its main collides with the app's.\nxcrun swiftc -O -swift-version 6 -sdk \"${SDKROOT}\" -target \"$(uname -m)-apple-macos${MACOSX_DEPLOYMENT_TARGET}\" -o \"${HELPERS}/kdex-auth\" \"${SRCROOT}/kdex-auth/main.swift\" \"${SRCROOT}/k-dex/Services/AWSSigV4.swift\"\ncodesign --force --options runtime --entitlements \"${ENT}\" --sign \"${EXPANDED_CODE_SIGN_IDENTITY:--}\" \"${HELPERS}/kdex-auth\"\n# kubectl needs the same inherit entitlement or the sandbox refuses to exec it;\n# the Bundle kubectl phase signs it without one.\nif [ -x \"${HELPERS}/kubectl\" ]; then\n  codesign --force --options runtime --entitlements \"${ENT}\" --sign \"${EXPANDED_CODE_SIGN_IDENTITY:--}\" \"${HELPERS}/kubectl\"\nfi";
+			shellScript = "set -e\n# Only the sandboxed configuration ships a credential helper. Unsandboxed the\n# app runs the user's own auth plugins, and the shim would be dead weight that\n# cannot even launch: inherit entitlements require a sandboxed parent.\nif [ \"${ENABLE_APP_SANDBOX}\" != \"YES\" ]; then exit 0; fi\nHELPERS=\"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Helpers\"\nENT=\"${SRCROOT}/packaging/entitlements/kdex-auth.entitlements\"\nmkdir -p \"${HELPERS}\"\n# Compiled here rather than as a second target: the shim has to stay out of\n# k-dex/, which is a synchronized group, or its main collides with the app's.\nxcrun swiftc -O -swift-version 6 -sdk \"${SDKROOT}\" -target \"$(uname -m)-apple-macos${MACOSX_DEPLOYMENT_TARGET}\" -o \"${HELPERS}/kdex-auth\" \"${SRCROOT}/kdex-auth/main.swift\" \"${SRCROOT}/k-dex/Services/AWSSigV4.swift\"\ncodesign --force --options runtime --entitlements \"${ENT}\" --sign \"${EXPANDED_CODE_SIGN_IDENTITY:--}\" \"${HELPERS}/kdex-auth\"\n# kubectl needs the same inherit entitlement or the sandbox refuses to exec it;\n# the Bundle kubectl phase signs it without one.\nif [ -x \"${HELPERS}/kubectl\" ]; then\n  codesign --force --options runtime --entitlements \"${ENT}\" --sign \"${EXPANDED_CODE_SIGN_IDENTITY:--}\" \"${HELPERS}/kubectl\"\nfi\n# Sparkle is dead-stripped from the binary (OTHER_LDFLAGS) but Xcode still\n# embeds the framework, and an updater bundled in a store build is exactly\n# what App Review looks for. Nothing links it, so removing it is safe.\nrm -rf \"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Frameworks/Sparkle.framework\"";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -503,7 +503,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = NO;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_FILE = "Info-AppStore.plist";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -511,12 +511,14 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.2.1;
+				OTHER_LDFLAGS = "-Wl,-dead_strip_dylibs";
 				PRODUCT_BUNDLE_IDENTIFIER = "com.irfancen.k-dex";
 				PRODUCT_NAME = "K-Dex";
 				REGISTER_APP_GROUPS = NO;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "APPSTORE $(inherited)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 6.0;
