@@ -1,6 +1,12 @@
 import AppKit
-import Sparkle
 import SwiftUI
+
+// The store build ships no updater: App Review rejects apps that update
+// themselves, and the App Store does that job instead. Gating the import as
+// well as the uses keeps the framework out of the link entirely.
+#if !APPSTORE
+import Sparkle
+#endif
 
 /// Scene-independent termination hook: `willTerminateNotification` observers
 /// attached to a window scene are skipped when the user closes all windows
@@ -17,10 +23,12 @@ struct KDexApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var model = AppModel()
     @State private var portForwards = PortForwardManager()
+    #if !APPSTORE
     /// Sparkle auto-updates (direct-distribution builds).
     private let updaterController = SPUStandardUpdaterController(
         startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil
     )
+    #endif
 
     var body: some Scene {
         WindowGroup {
@@ -33,11 +41,13 @@ struct KDexApp: App {
             // View → Hide/Show Sidebar (⌃⌘S), absent by default in a
             // NavigationSplitView app unless explicitly requested.
             SidebarCommands()
+            #if !APPSTORE
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") {
                     updaterController.updater.checkForUpdates()
                 }
             }
+            #endif
             CommandGroup(after: .toolbar) {
                 // On the cluster picker, refresh means "re-read the
                 // kubeconfig" — requestRefresh() is a no-op before connect,

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Deliberately empty. The root Info.plist exists only to merge Sparkle's
+	     feed URL and public key into the generated one, and the store build
+	     ships no updater — advertising an update feed it cannot use would be
+	     both dead weight and a flag for App Review. Everything else in the
+	     bundle's Info.plist is generated from build settings. -->
+</dict>
+</plist>
